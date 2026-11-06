@@ -1,8 +1,44 @@
-# Portable OS on an SD Card
+<h1 align="center">Osborne OS</h1>
 
-**[⬇️ Download the setup script](https://raw.githubusercontent.com/tareknahas85-star/portable-os-sdcard/main/02-post-install-setup.sh)** &nbsp;|&nbsp; **[⬇️ نزّل سكربت الإعداد](https://raw.githubusercontent.com/tareknahas85-star/portable-os-sdcard/main/02-post-install-setup.sh)**
+<p align="center">
+  <b>Your whole computer on an SD card, in your pocket</b><br>
+  <b>كمبيوترك كلو بكرت SD بجيبتك</b>
+</p>
+
+<div dir="rtl">
+
+> **ليش اسمو Osborne؟** سنة 1981 طلع **Osborne 1**، أول كمبيوتر محمول نجح بالسوق. وزنو كان حوالي 11 كيلو، شاشتو صغيرة 5 إنش، وكانو يحملوه متل الشنطة. بس فكرتو كانت كبيرة: كمبيوترك معك وين ما رحت.
+>
+> **وشو علاقتنا فيه؟** نفس الحلم، بس صار أخف بكتير. **Osborne OS** هو أوبونتو حقيقي متنصّب عكرت SD حجمو 128 جيجا: بتحطو بأي كمبيوتر تقريباً، بيقلع بنظامك إنت ببرامجك وملفاتك، وملفاتك بقسم مقفول بكلمة سر. يعني كمبيوترك كلو صار وزنو غرامين وبيفوت بجيبتك.
+
+</div>
+
+> **Why "Osborne"?** In 1981 the **Osborne 1** became the first portable computer to sell well. It weighed about 11 kg, had a 5-inch screen, and you carried it like a suitcase, but the idea was big: your computer goes wherever you go. **Osborne OS** keeps that idea and makes it fit in your pocket: a real Ubuntu install on a 128GB SD card that boots on almost any PC, with your files in an encrypted part of the card.
+
+<p align="center">
+  <img src="docs/Osborne-OS-poster.png" alt="Osborne OS: your whole computer on an SD card · كمبيوترك كلو بكرت SD بجيبتك" width="100%">
+</p>
+
+<p align="center">
+  <a href="#english">English</a> &nbsp;·&nbsp; <a href="#arabic">بالعربي</a> &nbsp;·&nbsp; 📘 <a href="https://github.com/tareknahas85-star/Osborne-OS/releases/latest/download/Osborne-OS-Guide.html">Interactive guide · الدليل التفاعلي</a>
+</p>
+
+## Download · التحميل
+
+| 📘 Guide · الدليل | Setup script · سكربت الإعداد | Autoinstall · التنصيب الآلي | Full guide · الدليل الكامل |
+|---|---|---|---|
+| [⬇️ Interactive guide · الدليل التفاعلي](https://github.com/tareknahas85-star/Osborne-OS/releases/latest/download/Osborne-OS-Guide.html) | [⬇️ 02-post-install-setup.sh](https://github.com/tareknahas85-star/Osborne-OS/releases/latest/download/02-post-install-setup.sh) | [⬇️ autoinstall-user-data.yaml](https://github.com/tareknahas85-star/Osborne-OS/releases/latest/download/autoinstall-user-data.yaml) | [📄 01-Build-Guide.md](./01-Build-Guide.md) |
+
+📘 **Start here:** the interactive guide is one HTML file that works offline on any device. Download it and open it in any browser.
+📘 **ابدأ من هون:** الدليل التفاعلي ملف واحد بيشتغل بلا نت على أي جهاز. نزّلو وافتحو بأي متصفح.
+
+All files and `SHA256SUMS.txt` are on the [releases page](https://github.com/tareknahas85-star/Osborne-OS/releases/latest).
+كل الملفات وملف `SHA256SUMS.txt` بـ[صفحة الإصدارات](https://github.com/tareknahas85-star/Osborne-OS/releases/latest).
 
 ---
+
+
+<a id="english"></a>
 
 ## In English
 
@@ -25,6 +61,8 @@ It is a real Ubuntu system on the card, not a live or test copy. You put the car
 ⚠️ **Before you run this on a real computer:** try it first on a test machine or an empty disk. If you pick the wrong disk by mistake, you can erase everything on it.
 
 ---
+
+<a id="arabic"></a>
 
 ## بالعربي
 
