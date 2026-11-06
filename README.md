@@ -83,3 +83,10 @@ It is a real Ubuntu system on the card, not a live or test copy. You put the car
 - انضافت كم إعدادات منشان الكرت يعيش أطول، لأن كروت SD بتتعب من كتر الكتابة عليها
 
 ⚠️ **قبل ما تشغّل هاد عكمبيوتر حقيقي:** جرّبو أول شي عجهاز تجريبي أو قرص فاضي. لأنك إذا اخترت القرص الغلط بالغلط، ممكن تمسح كل شي عليه.
+
+
+## Contribute · ساهم معنا
+
+Want to help? Read [CONTRIBUTING.md](CONTRIBUTING.md). Issues labelled [`good first issue`](../../labels/good%20first%20issue) are an easy start, and questions or ideas are welcome in [Discussions](../../discussions).
+
+بدك تساعد؟ اقرا [CONTRIBUTING.md](CONTRIBUTING.md). المهام اللي عليها [`good first issue`](../../labels/good%20first%20issue) بداية سهلة، وأي سؤال أو فكرة احكيها بـ [Discussions](../../discussions).
