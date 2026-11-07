@@ -35,6 +35,13 @@
 All files and `SHA256SUMS.txt` are on the [releases page](https://github.com/tareknahas85-star/Osborne-OS/releases/latest).
 كل الملفات وملف `SHA256SUMS.txt` بـ[صفحة الإصدارات](https://github.com/tareknahas85-star/Osborne-OS/releases/latest).
 
+## Videos · الفيديوهات
+
+🎬 Watch the whole thing on YouTube (made with AI help, Shami voice) · شوف كل شي عاليوتيوب (معمول بمساعدة الذكاء الاصطناعي، وصوت شامي):
+
+- ▶️ [Full walkthrough · الشرح الكامل](https://www.youtube.com/playlist?list=PLKVCo2bD6tZ0)
+- 📺 [Step by step · خطوة بخطوة](https://www.youtube.com/playlist?list=PLXL-Sy6MwrZQ)
+
 ---
 
 
