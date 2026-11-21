@@ -37,6 +37,7 @@ class Notifs(OsbWindow):
     def place(self):
         sw = Gdk.Screen.get_default().get_width(); self.move(sw - px(20) - self.cw - self.M, px(48) - self.M); return False
     def fill(self):
+        for ch in self.sc.get_children(): self.sc.remove(ch)
         if self.inner: self.inner.destroy()
         self.inner = Gtk.Fixed(); self.sc.add(self.inner); items = history(); y = 0
         if not items:

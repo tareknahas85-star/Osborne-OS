@@ -1,0 +1,7 @@
+#!/bin/sh
+# Start the compositor: OpenGL first, plain XRender if that fails.
+pkill -x picom 2>/dev/null
+C="$HOME/.config/osborne/picom.conf"
+picom --config "$C" --backend glx -b 2>/dev/null
+sleep 2
+pgrep -x picom >/dev/null || picom --config "$C" --backend xrender -b

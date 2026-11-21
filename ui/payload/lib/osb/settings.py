@@ -41,6 +41,7 @@ class SettingsWin(OsbWindow):
     def clear(self):
         for t in self.timers: GLib.source_remove(t)
         self.timers = []
+        for ch in self.sc.get_children(): self.sc.remove(ch)
         if self.page: self.page.destroy()
         self.page = Gtk.Fixed(); self.sc.add(self.page); self.y = 4; self.PWd = px(self.W - 220 - 60)
         _texts[:] = [r for r in _texts if r[0].get_parent() is not None]
@@ -129,7 +130,13 @@ class SettingsWin(OsbWindow):
     def p_sound(self):
         if not sh('wpctl status'): self.note('Sound service is not running yet. It starts with your session.')
         v, mu = self.vol(); self.sect('Output')
-        sl = Slider(px(260), v, lambda x: subprocess.Popen(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '%.2f' % x])); self.row('Volume', 'Speakers / headphones', sl, rw=270)
+        self.vlab = None
+        def setv(x):
+            subprocess.Popen(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '%.2f' % x])
+            if self.vlab is not None and self.vlab.get_parent() is not None: self.vlab.set_text('%d%%' % round(x * 100))
+        sl = Slider(px(260), v, setv, lambda x: beep()); self.row('Volume', 'Speakers / headphones', sl, rw=270)
+        self.vlab = make_label('%d%%' % round(v * 100), 10, 'semibold', 'primary', xalign=1.0, w=px(50), h=px(16)); self.page.put(self.vlab, self.PWd - px(4) - px(270) - px(16) - px(54), px(self.y - 8 - 58 + 21))
+        self.row('Test sound', 'Play a short sound to check the speakers', self.btn('Play', beep), rw=80)
         self.row('Mute', 'Silence the output', Switch(mu, lambda on: subprocess.Popen(['wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', '1' if on else '0'])), rw=42)
         st = sh('wpctl status'); sec = re.search(r'Sinks:(.*?)(?:\n\s*├─|\n\s*└─|\Z)', st, re.S)
         if sec:

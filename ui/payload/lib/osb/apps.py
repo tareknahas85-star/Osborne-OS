@@ -1,8 +1,8 @@
 """osb-apps: icon-grid app drawer."""
-import sys, subprocess
+import os, sys, subprocess
 from .common import *
 
-HIDE = {'picom', 'openbox configuration manager', 'vim', 'rofi', 'rofi theme selector', 'avahi zeroconf browser', 'bulk rename', 'lxappearance customize look and feel', 'uxterm', 'xterm'}
+HIDE = {'tint2', 'tint2 settings', 'advanced network configuration', 'customize look and feel', 'desktop preferences', 'file roller', 'mousepad', 'text editor settings', 'text editor', 'file manager pcmanfm', 'file manager', 'pulseaudio volume control', 'bluetooth manager', 'bluetooth adapters', 'wi-fi', 'firefox web browser', 'firefox', 'avahi ssh server browser', 'avahi vnc server browser', 'picom', 'openbox configuration manager', 'vim', 'rofi', 'rofi theme selector', 'avahi zeroconf browser', 'bulk rename', 'lxappearance customize look and feel', 'uxterm', 'xterm'}
 
 class AppDrawer(OsbWindow):
     def __init__(self):
@@ -23,10 +23,10 @@ class AppDrawer(OsbWindow):
         it = Gtk.IconTheme.get_default(); seen = set()
         for ai in sorted(Gio.AppInfo.get_all(), key=lambda a: a.get_name().lower()):
             if not ai.should_show() or ai.get_name() in seen or ai.get_name().lower() in HIDE: continue
-            seen.add(ai.get_name()); box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=px(6)); box.set_size_request(px(112), px(100))
+            seen.add(ai.get_name()); box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=px(6)); box.set_size_request(px(112), px(104))
             ic = ai.get_icon(); img = Gtk.Image.new_from_gicon(ic, Gtk.IconSize.DIALOG) if ic else Gtk.Image.new_from_icon_name('application-x-executable', Gtk.IconSize.DIALOG)
             img.set_pixel_size(px(48)); box.pack_start(img, False, False, px(6))
-            lb = Gtk.Label(label=ai.get_name()); lb.set_ellipsize(Pango.EllipsizeMode.END); lb.set_max_width_chars(14); lb.set_justify(Gtk.Justification.CENTER)
+            lb = Gtk.Label(label=ai.get_name()); lb.set_line_wrap(True); lb.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR); lb.set_lines(2); lb.set_ellipsize(Pango.EllipsizeMode.END); lb.set_max_width_chars(12); lb.set_width_chars(12); lb.set_justify(Gtk.Justification.CENTER)
             box.pack_start(lb, False, False, 0); ch = Gtk.FlowBoxChild(); ch.add(box); ch.info = ai; ch.name = ai.get_name(); ch.get_style_context().add_class('appitem')
             self.fb.add(ch)
         self.entry.connect('changed', lambda e: self.fb.invalidate_filter())
@@ -47,6 +47,11 @@ class AppDrawer(OsbWindow):
         return False
 
 def main():
+    me = os.getpid(); r = subprocess.run(['pgrep', '-f', 'python.*osb-apps'], capture_output=True, text=True).stdout.split()
+    others = [p for p in r if p.isdigit() and int(p) != me]
+    if others:
+        for p in others: subprocess.run(['kill', p])
+        return
     init_mode(); c = Gtk.CssProvider()
     c.load_from_data(b'.osbscroll,.osbscroll viewport{background:transparent;} .osbentry{background:transparent;border:none;box-shadow:none;font-size:15px;} flowboxchild.appitem{border-radius:16px;padding:6px;} flowboxchild.appitem:hover{background-color:alpha(#0a7cff,0.12);} flowboxchild:focus{outline:none;}')
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), c, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)

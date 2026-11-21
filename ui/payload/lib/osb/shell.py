@@ -35,15 +35,21 @@ class Wallpaper(Gtk.Window):
         self.w, self.h = scr.get_width(), scr.get_height()
         self.set_type_hint(Gdk.WindowTypeHint.DESKTOP); self.set_decorated(False); self.set_title('osb-wallpaper')
         self.set_default_size(self.w, self.h); self.move(0, 0); self.set_skip_taskbar_hint(True)
-        self.da = Gtk.DrawingArea(); self.add(self.da); self.da.connect('draw', self._d); self.surf = None; self.surf_mode = None; watch_wall(lambda: self.da.queue_draw())
+        self.da = Gtk.DrawingArea(); self.add(self.da); self.da.add_events(Gdk.EventMask.BUTTON_PRESS_MASK); self.da.connect('button-press-event', self._click); self.da.connect('draw', self._d); self.surf = None; self.surf_mode = None; watch_wall(lambda: self.da.queue_draw())
     def _d(self, wd, cr):
         key = (State.mode, get_wall())
         if self.surf_mode != key: self.surf = render_wall(self.w, self.h, State.mode); self.surf_mode = key
         cr.set_source_surface(self.surf, 0, 0); cr.paint(); return False
     def refresh(self): self.da.queue_draw()
+    def _click(self, w, e):
+        if e.button != 3: return False
+        m = Gtk.Menu()
+        for label, cmd in (('Change wallpaper', 'osb-settings appearance'), ('Display settings', 'osb-settings display'), ('Open Files', 'osb-files'), ('Open Terminal', 'lxterminal'), ('Settings', 'osb-settings')):
+            it = Gtk.MenuItem(label=label); it.connect('activate', lambda i, c=cmd: launch(c)); m.append(it)
+        m.show_all(); m.popup_at_pointer(e); return True
 
 # ---------------------------------------------------------------- top bar
-APPNAMES = {'osb-files': 'Files', 'Osb-files': 'Files', 'firefox': 'Firefox', 'Firefox': 'Firefox', 'lxterminal': 'Terminal',
+APPNAMES = {'osb-files': 'Files', 'Osb-files': 'Files', 'firefox': 'Firefox', 'Firefox': 'Firefox', 'google-chrome': 'Chrome', 'Google-chrome': 'Chrome', 'lxterminal': 'Terminal',
             'Lxterminal': 'Terminal', 'mousepad': 'Text Editor', 'Mousepad': 'Text Editor', 'pavucontrol': 'Sound', 'Pavucontrol': 'Sound', 'Osb-settings': 'Settings', 'Osb-calc': 'Calculator', 'Osb-wifi': 'Wi-Fi', 'Osb-monitor': 'System Monitor', 'Osb-power': 'Power'}
 class TopBar(OsbWindow):
     def __init__(self, app):
@@ -62,7 +68,7 @@ class TopBar(OsbWindow):
         pev.connect('button-press-event', lambda *a: (launch('osb-power'), True)[-1]); self.put(pev, sw - px(42), 0)
         self.lay = make_label('EN', 11.5, 'semibold', 'text', xalign=0.5, w=px(30), h=px(20)); self.put(self.lay, x, px(10))
         lev = Gtk.EventBox(); lev.set_visible_window(False); lev.set_size_request(px(34), px(40)); lev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        lev.connect('button-press-event', lambda *a: (launch('xdotool key ISO_Next_Group'), True)[-1]); self.put(lev, x - px(2), 0)
+        lev.connect('button-press-event', lambda *a: (self.toggle_layout(), True)[-1]); self.put(lev, x - px(2), 0)
         self.bell = Icon('bell', px(17), 'text', 1.6); self.put(self.bell, x + px(38), px(11))
         bev = Gtk.EventBox(); bev.set_visible_window(False); bev.set_size_request(px(30), px(40)); bev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         bev.connect('button-press-event', lambda *a: (launch('osb-notifs'), True)[-1]); self.put(bev, x + px(33), 0)
@@ -73,7 +79,7 @@ class TopBar(OsbWindow):
         ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(160), px(40)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         ev.connect('button-press-event', lambda *a: app.toggle_qs()); self.put(ev, x - px(10), 0)
         aev = Gtk.EventBox(); aev.set_visible_window(False); aev.set_size_request(px(80), px(40)); aev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        aev.connect('button-press-event', lambda *a: launch('osb-apps')); self.put(aev, px(54), 0)
+        aev.connect('button-press-event', lambda *a: launch('osb-switcher overview')); self.put(aev, px(54), 0)
         self.connect('realize', self._strut); self.poll_layout(); GLib.timeout_add(600, self.poll_layout); self.tick(); GLib.timeout_add_seconds(15, self.tick); GLib.timeout_add(1500, self.poll_active)
     def _strut(self, *_):
         try:
@@ -81,6 +87,17 @@ class TopBar(OsbWindow):
             subprocess.Popen(['xprop', '-id', str(xid), '-f', '_NET_WM_STRUT_PARTIAL', '32c', '-set', '_NET_WM_STRUT_PARTIAL',
                               '0,0,%d,0,0,0,0,0,0,%d,0,0' % (h, self.sw)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e: print('strut', e, file=sys.stderr)
+    def toggle_layout(self):
+        try:
+            import ctypes
+            if not hasattr(self, '_x11'): self.poll_layout()
+            st = self._XkbState(); self._x11.XkbGetState(ctypes.c_void_p(self._dpy), 0x0100, ctypes.byref(st))
+            n = max(1, len(self._layouts or ['us']))
+            if n < 2:
+                subprocess.run(['setxkbmap', '-layout', 'us,ar', '-option', 'grp:alt_shift_toggle'], timeout=5); self._layouts = None; n = 2
+            self._x11.XkbLockGroup(ctypes.c_void_p(self._dpy), 0x0100, (st.group + 1) % n); self._x11.XFlush(ctypes.c_void_p(self._dpy))
+            self.poll_layout()
+        except Exception as e: print('layout', e, file=sys.stderr)
     def poll_layout(self):
         try:
             if not hasattr(self, '_x11'):
@@ -116,7 +133,7 @@ class Dock(OsbWindow):
         self.shadow = (22, 8, 26); self.put(Box('dock', cw, ch), 0, 0)
         specs = [('grid', [(0, '#ffc43d'), (1, '#ff9d12')], lambda: launch('osb-apps'), None),
                  ('folder', [(0, '#55abff'), (1, '#0a7cff')], lambda: focus_or_launch('osb-files', 'osb-files'), 'osb-files'),
-                 ('globe', None, lambda: focus_or_launch('firefox', 'firefox'), 'firefox'),
+                 ('globe', None, lambda: focus_or_launch('google-chrome', 'google-chrome-stable'), 'google-chrome'),
                  ('terminal', [(0, '#33343c'), (1, '#16171c')], lambda: focus_or_launch('lxterminal', 'lxterminal'), 'lxterminal'),
                  ('calendar', [(0, '#ff8f84'), (1, '#f2616c')], lambda: focus_or_launch('osb-calc', 'osb-calc'), 'osb-calc'),
                  ('gear', [(0, '#a7acb8'), (1, '#7a7f8c')], lambda: focus_or_launch('osb-settings', 'osb-settings'), 'osb-settings')]
@@ -226,7 +243,7 @@ class QuickSettings(OsbWindow):
     def row(self, x, y, h, ic, val, cb, key):
         self.put(Box('qsrow', px(246), px(h)), px(x), px(y))
         self.put(Icon(ic, px(17), 'iconmuted', 1.5), px(x + 9), px(y + 11))
-        sl = Slider(px(162), val, cb); self.put(sl, px(x + 36), px(y + 10))
+        sl = Slider(px(162), val, cb, (lambda v: beep()) if key == 'vol' else None); self.put(sl, px(x + 36), px(y + 10))
         lab = make_label('%d%%' % round(val * 100), 8, 'normal', 'muted', xalign=1.0, w=px(34), h=px(14)); self.put(lab, px(x + 207), px(y + 13))
         setattr(self, key + '_slider', sl); setattr(self, key + '_label', lab)
     def place(self):

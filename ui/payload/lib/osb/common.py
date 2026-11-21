@@ -219,12 +219,21 @@ class Icon(Gtk.DrawingArea):
         draw_icon(cr, self.name, 0, 0, self.size, col, self.stroke); return False
     def set_name_(self, name): self.name = name; self.queue_draw()
 
+def beep():
+    import subprocess
+    for f in ('/usr/share/sounds/freedesktop/stereo/audio-volume-change.oga', '/usr/share/sounds/freedesktop/stereo/bell.oga', '/usr/share/sounds/alsa/Front_Center.wav'):
+        if os.path.exists(f):
+            try: subprocess.Popen(['paplay', f], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL); return
+            except Exception: pass
+    try: subprocess.Popen(['speaker-test', '-t', 'sine', '-f', '700', '-l', '1', '-p', '1'], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    except Exception: pass
+
 class Slider(Gtk.DrawingArea):
     """Design slider: 4px track, blue fill, 14px white thumb with shadow."""
-    def __init__(self, w, value, on_change=None):
-        super().__init__(); self.w = w; self.value = value; self.on_change = on_change
+    def __init__(self, w, value, on_change=None, on_release=None):
+        super().__init__(); self.w = w; self.value = value; self.on_change = on_change; self.on_release = on_release
         self.set_size_request(int(w), px(20)); self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK)
-        self.connect('draw', self._d); self.connect('button-press-event', self._p); self.connect('motion-notify-event', self._m)
+        self.connect('draw', self._d); self.connect('button-press-event', self._p); self.connect('motion-notify-event', self._m); self.connect('button-release-event', self._r)
         self.drag = False
     def _d(self, wd, cr):
         W = self.w; H = px(20); cy = H/2.0; th = pxf(4); r = pxf(7.2); x0 = r; x1 = W - r
@@ -238,6 +247,10 @@ class Slider(Gtk.DrawingArea):
         r = pxf(7.2); v = (x - r) / max(1.0, (self.w - 2*r)); self.value = max(0.0, min(1.0, v)); self.queue_draw()
         if self.on_change: self.on_change(self.value)
     def _p(self, w, e): self.drag = True; self._set(e.x); return True
+    def _r(self, w, e):
+        self.drag = False
+        if self.on_release: self.on_release(self.value)
+        return True
     def _m(self, w, e):
         if e.state & Gdk.ModifierType.BUTTON1_MASK: self._set(e.x)
         return True
