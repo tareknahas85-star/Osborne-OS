@@ -1,0 +1,13 @@
+#!/bin/sh
+# Osborne screenshot: osb-shot [full|area|window]
+d="$HOME/Pictures/Screenshots"; mkdir -p "$d"
+f="$d/Screenshot-$(date +%Y%m%d-%H%M%S).png"
+case "$1" in
+  area) scrot -s -f "$f" ;;
+  window) scrot -u "$f" ;;
+  *) scrot "$f" ;;
+esac
+if [ -f "$f" ]; then
+  command -v xclip >/dev/null && xclip -selection clipboard -t image/png -i "$f" 2>/dev/null
+  notify-send -i camera-photo "Screenshot saved" "$(basename "$f") in Pictures/Screenshots"
+fi
