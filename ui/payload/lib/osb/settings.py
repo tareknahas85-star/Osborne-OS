@@ -15,7 +15,7 @@ def bg(cmd, cb=None, timeout=30):
 
 CATS = [('Wi-Fi', 'wifi', 'wifi'), ('Bluetooth', 'bluetooth', 'bluetooth'), ('Sound', 'speaker', 'sound'), ('Display', 'monitor', 'display'),
         ('Appearance', 'palette', 'appearance'), ('Keyboard', 'keyboard', 'keyboard'), ('Date & Time', 'clock', 'time'),
-        ('Storage', 'disk', 'storage'), ('About', 'info', 'about')]
+        ('Storage', 'disk', 'storage'), ('About', 'info', 'about'), ('System Update', 'download', 'update')]
 CONF = os.path.expanduser('~/.config/osborne')
 
 class SettingsWin(OsbWindow):
@@ -225,6 +225,61 @@ class SettingsWin(OsbWindow):
                      ('Memory', '%.1f GB' % (int(mem.group(1)) / 1048576.0) if mem else '—'), ('User', getpass.getuser())):
             self.row(t, v, None, h=54)
         self.row('Password', 'Change the password for this user', self.btn('Change…', lambda: subprocess.Popen(['lxterminal', '-e', 'passwd'])), rw=100)
+
+    # ---- system update (pulls straight from GitHub)
+    UPD_URL = 'https://raw.githubusercontent.com/tareknahas85-star/Osborne-OS/main/ui/update.sh'
+    API = 'https://api.github.com/repos/tareknahas85-star/Osborne-OS/commits/main'
+    def p_update(self):
+        try: cur = open('/usr/local/lib/osborne/version').read().strip()
+        except Exception: cur = ''
+        self.upd_cur = cur; self.upd_busy = False
+        self.row('Installed version', cur[:7] if cur else 'Unknown (installed before updates were tracked)', None)
+        self.upd_status = make_label('Checking for updates…', 11, 'semibold', 'text', w=self.PWd, h=px(20)); self.page.put(self.upd_status, px(6), px(self.y)); self.y += 30
+        self.upd_log = make_label('', 9, 'normal', 'muted', w=self.PWd, h=px(16)); self.page.put(self.upd_log, px(6), px(self.y)); self.y += 30
+        self.upd_btn = self.btn('Update now', self.do_update, True); self.upd_btn.set_size_request(px(140), px(36)); self.upd_btn.set_sensitive(False); self.page.put(self.upd_btn, px(4), px(self.y))
+        self.chk_btn = self.btn('Check again', lambda: self.check_update()); self.chk_btn.set_size_request(px(120), px(36)); self.page.put(self.chk_btn, px(156), px(self.y)); self.y += 56
+        self.out_btn = self.btn('Log out now', lambda: subprocess.Popen(['openbox', '--exit'])); self.out_btn.set_size_request(px(140), px(36)); self.out_btn.set_no_show_all(True); self.page.put(self.out_btn, px(4), px(self.y)); self.y += 50
+        self.note('Needs an internet connection. Your files and settings are kept.')
+        self.check_update()
+    def check_update(self):
+        if self.upd_busy: return
+        self.upd_status.set_text('Checking for updates…'); self.upd_btn.set_sensitive(False)
+        def work():
+            import urllib.request, json
+            try:
+                with urllib.request.urlopen(urllib.request.Request(self.API, headers={'User-Agent': 'osborne'}), timeout=12) as r: sha = json.load(r)['sha']
+            except Exception: sha = None
+            GLib.idle_add(self.checked, sha)
+        threading.Thread(target=work, daemon=True).start()
+    def checked(self, sha):
+        if self.cur != 'update' or self.upd_status.get_parent() is None: return
+        self.latest = sha
+        if not sha: self.upd_status.set_text('Could not reach GitHub. Check your internet connection.'); self.upd_btn.set_sensitive(False)
+        elif sha == self.upd_cur: self.upd_status.set_text('Osborne is up to date.'); self.upd_btn.set_sensitive(False)
+        else: self.upd_status.set_text('A new version is available.'); self.upd_btn.set_sensitive(True)
+    def do_update(self):
+        if self.upd_busy: return
+        self.upd_busy = True; self.upd_btn.set_sensitive(False); self.chk_btn.set_sensitive(False); self.upd_status.set_text('Updating… this takes a few minutes. Please keep the device on.')
+        def work():
+            try:
+                p = subprocess.Popen(['pkexec', 'bash', '-c', 'curl -fsSL %s | bash' % self.UPD_URL], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                for ln in p.stdout:
+                    ln = ln.strip()
+                    if ln: GLib.idle_add(lambda t=ln[:90]: self.upd_log.set_text(t) if self.upd_log.get_parent() else None)
+                rc = p.wait()
+            except Exception: rc = 1
+            GLib.idle_add(self.update_done, rc)
+        threading.Thread(target=work, daemon=True).start()
+    def update_done(self, rc):
+        self.upd_busy = False
+        if self.upd_status.get_parent() is None: return
+        self.chk_btn.set_sensitive(True)
+        if rc == 0:
+            self.upd_status.set_text('Update finished. Log out and back in to use the new version.'); self.upd_log.set_text(''); self.out_btn.show()
+            try: self.upd_cur = open('/usr/local/lib/osborne/version').read().strip()
+            except Exception: pass
+        else:
+            self.upd_status.set_text('The update did not finish. Check the internet connection and try again.'); self.upd_btn.set_sensitive(True)
 
 def main():
     start = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in [k for n, i, k in CATS] else 'wifi'

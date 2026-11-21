@@ -150,6 +150,7 @@ ICONS = {
  'lock': '<rect x="5" y="10.5" width="14" height="9.5" rx="2.6"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/>',
  'keyboard': '<rect x="3" y="6.5" width="18" height="11" rx="3"/><path d="M7 10.5h.01M11 10.5h.01M15 10.5h.01M7.5 14h9"/>',
  'monitor': '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2.6"/><path d="M9 20h6M12 16.5V20"/>',
+ 'download': '<path d="M12 4v10.5M7.5 10.2 12 14.7l4.5-4.5M5 19.5h14"/>',
  'info': '<circle cx="12" cy="12" r="8.6"/><path d="M12 11v5.5M12 7.8h.01"/>',
  'palette': '<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.4 0 2-.9 1.5-2-.5-1.2.3-2.5 1.7-2.5H17a3.5 3.5 0 0 0 3.5-3.5C20.5 7 16.8 3.5 12 3.5z"/><path d="M8 11h.01M11 7.8h.01M15 8.8h.01"/>',
  'speaker': '<path d="M4 9.5v5h3.5l4.5 3.8V5.7L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/>',
