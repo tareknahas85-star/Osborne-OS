@@ -1,5 +1,5 @@
 """osb-settings: Settings app in the Osborne design."""
-import os, sys, re, shutil, subprocess, threading, platform, socket, getpass
+import os, sys, re, shutil, subprocess, threading, platform, socket, getpass, time, json
 from .common import *
 from .common import _texts
 
@@ -13,9 +13,9 @@ def bg(cmd, cb=None, timeout=30):
         if cb: GLib.idle_add(cb, out)
     threading.Thread(target=w, daemon=True).start()
 
-CATS = [('Wi-Fi', 'wifi', 'wifi'), ('Bluetooth', 'bluetooth', 'bluetooth'), ('Sound', 'speaker', 'sound'), ('Display', 'monitor', 'display'),
+CATS = [('Profile', 'user', 'profile'), ('Wi-Fi', 'wifi', 'wifi'), ('Bluetooth', 'bluetooth', 'bluetooth'), ('Sound', 'speaker', 'sound'), ('Display', 'monitor', 'display'),
         ('Appearance', 'palette', 'appearance'), ('Keyboard', 'keyboard', 'keyboard'), ('Date & Time', 'clock', 'time'),
-        ('Storage', 'disk', 'storage'), ('About', 'info', 'about'), ('System Update', 'download', 'update')]
+        ('Storage', 'disk', 'storage'), ('System Info', 'info', 'about'), ('System Update', 'download', 'update'), ('About', 'star', 'creator')]
 CONF = os.path.expanduser('~/.config/osborne')
 
 class SettingsWin(OsbWindow):
@@ -54,7 +54,13 @@ class SettingsWin(OsbWindow):
         P.put(make_label(title, 11, 'semibold', 'text', w=px(360), h=px(18)), px(18), px(ty))
         if sub: P.put(make_label(sub, 9, 'normal', 'muted', w=px(400), h=px(14)), px(18), px(ty + 18))
         if right is not None:
-            rw = rw or 120; P.put(right, self.PWd - px(4) - px(rw) - px(16), px(self.y + (h - 30) / 2.0))
+            rw = rw or 120
+            if isinstance(right, Gtk.ComboBox):
+                right.set_size_request(px(rw), px(30))
+                for c in right.get_cells():
+                    try: c.set_property('ellipsize', Pango.EllipsizeMode.END)
+                    except Exception: pass
+            P.put(right, self.PWd - px(4) - px(rw) - px(16), px(self.y + (h - 30) / 2.0))
         if click:
             ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(self.PWd - px(4), px(h)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             ev.connect('button-press-event', lambda w, e: (click(), True)[-1]); P.put(ev, 0, px(self.y))
@@ -147,10 +153,9 @@ class SettingsWin(OsbWindow):
         self.row('Microphone', 'Input volume', Slider(px(260), v2, lambda x: subprocess.Popen(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SOURCE@', '%.2f' % x])), rw=270)
         self.row('Sound mixer', 'Advanced per-app volume control', self.btn('Open', lambda: subprocess.Popen(['pavucontrol'])), rw=80)
     def p_display(self):
-        o = sh('brightnessctl -m'); 
-        try: b = float(o.split(',')[3].strip('%')) / 100
-        except Exception: b = 0.7
-        self.row('Brightness', 'Screen backlight' if o else 'Brightness control is not available on this screen', Slider(px(260), b, lambda x: subprocess.Popen(['brightnessctl', 's', '%d%%' % max(1, round(x * 100))])), rw=270)
+        try: b = int(sh('osb-brightness get') or 100) / 100.0
+        except Exception: b = 1.0
+        self.row('Brightness', 'Screen brightness', Slider(px(260), b, None, lambda x: subprocess.Popen(['osb-brightness', 'set', '%d' % max(5, round(x * 100))])), rw=270)
         xr = sh('xrandr'); out = re.search(r'^(\S+) connected', xr, re.M)
         if out:
             name = out.group(1); modes = re.findall(r'^\s+(\d+x\d+)\s+([\d.]+)', xr.split(name, 1)[1], re.M); seen = []; cur = re.search(r'(\d+x\d+)\+', xr)
@@ -183,20 +188,23 @@ class SettingsWin(OsbWindow):
             def draw(w, cr, tw=tw, th=th):
                 sf = render_wall(tw, th, State.mode, w.val); rounded_rect(cr, 0, 0, tw, th, px(8)); cr.save(); cr.clip(); cr.set_source_surface(sf, 0, 0); cr.paint(); cr.restore()
                 rounded_rect(cr, 1, 1, tw - 2, th - 2, px(8)); cr.set_line_width(2.5 if w.on else 1); cr.set_source_rgba(*hex2rgb(pal('primary' if w.on else 'border'))); cr.stroke(); return False
-            da.connect('draw', draw); ev = Gtk.EventBox(); ev.set_visible_window(False); ev.add(da); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-            ev.connect('button-press-event', lambda w, e, v=val: (set_wall(v), self.show('appearance', True), True)[-1])
-            self.page.put(ev, x, y); self.page.put(make_label(name, 9.5, 'normal', 'muted', w=tw, h=px(14)), x, y + th + px(4))
+            da.connect('draw', draw); da.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            da.connect('button-press-event', lambda w, e, v=val: (e.type == Gdk.EventType.BUTTON_PRESS and e.button == 1 and (set_wall(v), GLib.idle_add(self.show, 'appearance', True)), True)[-1])
+            self.page.put(da, x, y); self.page.put(make_label(name, 9.5, 'normal', 'muted', w=tw, h=px(14)), x, y + th + px(4))
         rows = (len(opts) + per - 1) // per; self.y += rows * (70 + 30) + 6
         self.note('Put your own pictures in the Pictures folder and they will show up here.')
     def set_theme(self, m):
         State.mode = m; set_mode(m); apply_css(m); restyle_labels(); subprocess.Popen(['osb-apply-theme', m]); self.show('appearance', True)
         for w in Gtk.Window.list_toplevels(): w.queue_draw()
     def p_keyboard(self):
-        cur = (re.search(r'layout:\s+(\S+)', sh('setxkbmap -query')) or [0, 'us'])[1]; have = set(cur.split(','))
+        cur = (re.search(r'layout:\s+(\S+)', sh('setxkbmap -query')) or [0, 'us'])[1]
+        try: cur = re.search(r'-layout (\S+)', open(os.path.join(CONF, 'keyboard.sh')).read()).group(1)
+        except Exception: pass
+        have = set(cur.split(','))
         self.sect('Layouts', 0); self.note('Press Alt + Shift to switch between the layouts you enable.')
         def apply():
             ls = [l for l in ('us', 'ar') if l in self.have] or ['us']; self.have = set(ls)
-            os.makedirs(CONF, exist_ok=True); cmd = 'setxkbmap -layout %s -option grp:alt_shift_toggle' % ','.join(ls); open(os.path.join(CONF, 'keyboard.sh'), 'w').write('#!/bin/sh\n' + cmd + '\n'); subprocess.Popen(cmd, shell=True)
+            os.makedirs(CONF, exist_ok=True); cmd = 'setxkbmap -layout %s -option grp:alt_shift_toggle' % ','.join(ls); open(os.path.join(CONF, 'keyboard.sh'), 'w').write('#!/bin/sh\n' + cmd + '\n'); subprocess.Popen(cmd + '; sleep 2; ' + cmd, shell=True)
         self.have = have
         for code, name, sub in (('us', 'English (US)', 'QWERTY'), ('ar', 'Arabic', 'العربية')):
             def tog(on, c=code):
@@ -232,6 +240,81 @@ class SettingsWin(OsbWindow):
                      ('Memory', '%.1f GB' % (int(mem.group(1)) / 1048576.0) if mem else '—'), ('User', getpass.getuser())):
             self.row(t, v, None, h=54)
         self.row('Password', 'Change the password for this user', self.btn('Change…', lambda: subprocess.Popen(['lxterminal', '-e', 'passwd'])), rw=100)
+
+    # ---- profile
+    def p_profile(self):
+        P = self.page; name = display_name(); big = Avatar(px(72)); P.put(big, px(6), px(self.y + 4))
+        P.put(make_label('Display name', 10, 'semibold', 'muted', w=px(200), h=px(16)), px(100), px(self.y + 6))
+        ent = Gtk.Entry(); ent.set_text(name); ent.set_max_length(30); ent.set_size_request(px(250), px(34)); P.put(ent, px(100), px(self.y + 28))
+        def save(*a):
+            n = ent.get_text().strip()
+            if n: set_display_name(n); self.notify('Profile', 'Name saved'); big.name = n; big.refresh()
+        ent.connect('activate', save); P.put(self.btn('Save', save, True), px(364), px(self.y + 28)); self.y += 96
+        self.sect('Avatar', 4); cur = get_avatar(); opts = ['initials'] + ['preset:%d' % i for i in range(len(AVATAR_PRESETS))]
+        if os.path.isfile(AVATARPNG): opts.append('file')
+        per = max(1, (self.PWd - px(8)) // px(64))
+        for i, kind in enumerate(opts):
+            da = Gtk.DrawingArea(); da.set_size_request(px(54), px(54)); da.kind = kind
+            def draw(w, cr):
+                cr.translate(px(1), px(1)); draw_avatar(cr, px(52), w.kind, name_initials(display_name()))
+                if w.kind == cur: cr.identity_matrix(); rounded_rect(cr, 1, 1, px(54) - 2, px(54) - 2, px(17)); cr.set_line_width(2.5); cr.set_source_rgba(*hex2rgb(pal('primary'))); cr.stroke()
+                return False
+            da.connect('draw', draw); da.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            da.connect('button-press-event', lambda w, e: (e.button == 1 and (set_avatar(w.kind), GLib.idle_add(self.show, 'profile', True)), True)[-1])
+            P.put(da, px(4) + (i % per) * px(64), px(self.y) + (i // per) * px(64))
+        self.y += ((len(opts) + per - 1) // per) * 64 + 10
+        def pick():
+            d = Gtk.FileChooserDialog(title='Choose a picture', transient_for=self, action=Gtk.FileChooserAction.OPEN)
+            d.add_button('Cancel', Gtk.ResponseType.CANCEL); d.add_button('Use picture', Gtk.ResponseType.OK)
+            f = Gtk.FileFilter(); f.set_name('Pictures'); [f.add_pattern(x) for x in ('*.png', '*.jpg', '*.jpeg', '*.webp', '*.bmp', '*.gif')]; d.add_filter(f)
+            pics = os.path.expanduser('~/Pictures'); d.set_current_folder(pics if os.path.isdir(pics) else os.path.expanduser('~'))
+            if d.run() == Gtk.ResponseType.OK:
+                try: import_avatar(d.get_filename())
+                except Exception as ex: self.notify('Profile', 'Could not use that picture: %s' % ex)
+            d.destroy(); self.show('profile', True)
+        P.put(self.btn('Choose a picture…', pick, True), px(6), px(self.y))
+        P.put(self.btn('Use initials', lambda: (set_avatar('initials'), self.show('profile', True))), px(170), px(self.y)); self.y += 46
+        self.note('Your name and picture show in the top panel, Files and the lock screen.')
+
+    # ---- about (creator info from GitHub)
+    GH_USER = 'tareknahas85-star'; GHC = os.path.join(CONF, 'github.json'); _gh_try = 0; _gh_busy = False
+    def p_creator(self):
+        try: d = json.load(open(self.GHC))
+        except Exception: d = None
+        if (not d or time.time() - d.get('t', 0) > 600) and not self._gh_busy and time.time() - self._gh_try > 30:
+            self._gh_busy = True; self._gh_try = time.time()
+            def work():
+                try:
+                    u = json.loads(sh('curl -fsSL -m 12 -H "User-Agent: osborne" https://api.github.com/users/%s' % self.GH_USER, 15))
+                    r = json.loads(sh('curl -fsSL -m 12 -H "User-Agent: osborne" "https://api.github.com/users/%s/repos?per_page=30&sort=updated"' % self.GH_USER, 15))
+                    sh('curl -fsSL -m 12 -o "%s" "%s&s=200"' % (os.path.join(CONF, 'gh_avatar.png'), u.get('avatar_url', '')), 15)
+                    os.makedirs(CONF, exist_ok=True); json.dump({'t': time.time(), 'u': u, 'r': [x for x in r if not x.get('fork')]}, open(self.GHC, 'w'))
+                except Exception: pass
+                def done(): self._gh_busy = False; (self.show('creator', True) if self.cur == 'creator' else None); return False
+                GLib.idle_add(done)
+            threading.Thread(target=work, daemon=True).start()
+        if not d:
+            self.note('Could not reach GitHub. Check the internet connection and open this page again.' if not self._gh_busy and self._gh_try and time.time() - self._gh_try > 1 else 'Loading from GitHub…'); return
+        u = d['u']; P = self.page; apath = os.path.join(CONF, 'gh_avatar.png')
+        if os.path.isfile(apath):
+            da = Gtk.DrawingArea(); da.set_size_request(px(72), px(72))
+            def dr(w, cr):
+                try:
+                    pb = GdkPixbuf.Pixbuf.new_from_file_at_size(apath, px(72), px(72)); cr.arc(px(36), px(36), px(36), 0, 6.2832); cr.clip(); Gdk.cairo_set_source_pixbuf(cr, pb, 0, 0); cr.paint()
+                except Exception: pass
+                return False
+            da.connect('draw', dr); P.put(da, px(6), px(self.y + 2))
+        P.put(make_label(u.get('name') or u.get('login', ''), 18, 'bold', 'text', w=px(400), h=px(26)), px(96), px(self.y + 6))
+        P.put(make_label('@' + u.get('login', ''), 10.5, 'normal', 'muted', w=px(300), h=px(16)), px(96), px(self.y + 34))
+        P.put(make_label('%s public projects  \u00b7  %s followers' % (u.get('public_repos', 0), u.get('followers', 0)), 10, 'normal', 'muted', w=px(400), h=px(16)), px(96), px(self.y + 54)); self.y += 86
+        for t, v in (('Bio', u.get('bio')), ('Location', u.get('location')), ('Website', u.get('blog'))):
+            if v: self.row(t, v, None, h=54)
+        self.row('GitHub profile', u.get('html_url', ''), self.btn('Open', lambda: subprocess.Popen(['xdg-open', u.get('html_url', '')], start_new_session=True)), rw=80)
+        self.sect('Projects')
+        for r in d['r'][:8]:
+            self.row(r.get('name', ''), (r.get('description') or 'No description')[:90], make_label('\u2605 %s' % r.get('stargazers_count', 0), 10, 'semibold', 'muted', xalign=1.0, w=px(60), h=px(16)), h=54, rw=60,
+                     click=lambda url=r.get('html_url', ''): subprocess.Popen(['xdg-open', url], start_new_session=True))
+        self.sect('Osborne OS'); self.row('Made by', 'Tarek Nahas  \u00b7  AI', None, h=54)
 
     # ---- system update (pulls straight from GitHub)
     UPD_URL = 'https://raw.githubusercontent.com/tareknahas85-star/Osborne-OS/main/ui/update.sh'

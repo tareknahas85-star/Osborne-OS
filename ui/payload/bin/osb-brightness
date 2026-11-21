@@ -1,0 +1,21 @@
+#!/bin/bash
+# osb-brightness get | set <1-100> | up | down | restore
+# Uses the hardware backlight when it exists, otherwise software dimming via xrandr.
+F="$HOME/.config/osborne/brightness"; mkdir -p "$(dirname "$F")"
+hw_get() { brightnessctl -m 2>/dev/null | head -1 | cut -d, -f4 | tr -d '%'; }
+sw_get() { cat "$F" 2>/dev/null || echo 100; }
+get() { v=$(hw_get); [ -n "$v" ] && echo "$v" || sw_get; }
+set_() {
+  p=$1; [ "$p" -lt 5 ] && p=5; [ "$p" -gt 100 ] && p=100
+  if [ -n "$(hw_get)" ] && brightnessctl s "${p}%" >/dev/null 2>&1; then echo "$p" > "$F"; return 0; fi
+  o=$(xrandr 2>/dev/null | awk '/ connected/{print $1; exit}')
+  [ -n "$o" ] && xrandr --output "$o" --brightness "$(awk -v p="$p" 'BEGIN{printf "%.2f", p/100}')"
+  echo "$p" > "$F"
+}
+case "$1" in
+  get) get ;;
+  set) set_ "${2%.*}" ;;
+  up) set_ $(( $(get) + 8 )) ;;
+  down) set_ $(( $(get) - 8 )) ;;
+  restore) [ -f "$F" ] && set_ "$(cat "$F")" ;;
+esac

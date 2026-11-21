@@ -21,12 +21,7 @@ def sh_out(cmd, timeout=2):
     except Exception: return ''
 
 def user_names():
-    try: full = pwd.getpwnam(getpass.getuser()).pw_gecos.split(',')[0] or getpass.getuser()
-    except Exception: full = getpass.getuser()
-    name = full.strip() or getpass.getuser()
-    name = name[:1].upper() + name[1:]
-    parts = name.split(); ini = (parts[0][0] + (parts[1][0] if len(parts) > 1 else parts[0][1:2] or '')).upper()
-    return name, ini
+    name = display_name(); return name, name_initials(name)
 
 # ---------------------------------------------------------------- wallpaper
 class Wallpaper(Gtk.Window):
@@ -56,7 +51,7 @@ class TopBar(OsbWindow):
         sw = Gdk.Screen.get_default().get_width()
         super().__init__(sw, px(40), 0, Gdk.WindowTypeHint.DOCK, 'osb-topbar'); self.app = app; self.sw = sw
         self.move(0, 0)
-        self.put(Icon('logo', px(26), 'bar'), px(16), px(7))
+        self.put(Emblem(px(26), 'bar'), px(16), px(7))
         act = make_label('Activities', 13, 'semibold', 'text', w=px(80), h=px(20)); self.put(act, px(54), px(10))
         self.appl = make_label('Files', 13, 'medium', 'muted', w=px(140), h=px(20)); self.put(self.appl, px(127), px(10))
         self.wifi = Icon('wifi', px(17), 'text', 1.6); self.vol = Icon('volume', px(17), 'text', 1.6); self.bat = Icon('battery', px(17), 'text', 1.6)
@@ -179,9 +174,13 @@ class QuickSettings(OsbWindow):
         self.move(sw - px(95) - cw - m, px(54) - m)
         self.shadow = (26, 14, 34); self.put(Box('panel', cw, ch), 0, 0)
         name, ini = user_names()
-        av = Box('avatar', px(34), px(34)); self.put(av, px(18), px(18))
-        self.put(make_label(ini, 11, 'bold', '#ffffff', xalign=0.5, w=px(34), h=px(34)), px(18), px(18))
-        self.put(make_label(name, 12, 'semibold', 'text', w=px(150), h=px(18)), px(61), px(19))
+        self.av = Avatar(px(34)); self.put(self.av, px(18), px(18))
+        self.nm = make_label(name, 12, 'semibold', 'text', w=px(150), h=px(18)); self.put(self.nm, px(61), px(19))
+        pfev = Gtk.EventBox(); pfev.set_visible_window(False); pfev.set_size_request(px(150), px(38)); pfev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        pfev.connect('button-press-event', lambda *a: (launch(['osb-settings', 'profile']), app.qs.hide(), True)[-1]); self.put(pfev, px(14), px(14))
+        def _prof():
+            n = display_name(); self.nm.set_text(n); self.av.name = n; self.av.refresh()
+        watch_profile(_prof)
         self.put(make_label('Available', 9, 'normal', 'green', w=px(100), h=px(14)), px(61), px(35))
         gear = Icon('gear', px(19), 'muted', 1.5); self.put(gear, px(237), px(25))
         pw = Icon('power', px(19), 'muted', 1.5); self.put(pw, px(207), px(25))
@@ -218,17 +217,28 @@ class QuickSettings(OsbWindow):
                 rounded_rect(cr, px(x), px(y0), px(3), px(y1 - y0), px(1.5)); cr.fill()
             return False
         self.art_bars.connect('draw', bars); self.put(self.art_bars, px(24), px(276))
-        self.title = make_label('Soft Focus', 10, 'semibold', '#ffffff', w=px(130), h=px(15)); self.put(self.title, px(76), px(284))
-        self.artist = make_label('Spatial Sessions', 8, 'normal', '#a9afc3', w=px(130), h=px(12)); self.put(self.artist, px(76), px(299))
-        self.prog = Gtk.DrawingArea(); self.prog.set_size_request(px(146), px(3)); self.prog.frac = 0.55
+        self.title = make_label('Nothing playing', 10, 'semibold', '#ffffff', w=px(130), h=px(15)); self.put(self.title, px(76), px(284))
+        self.artist = make_label('Play music in any app', 8, 'normal', '#a9afc3', w=px(130), h=px(12)); self.put(self.artist, px(76), px(299))
+        self.prog = Gtk.DrawingArea(); self.prog.set_size_request(px(146), px(3)); self.prog.frac = 0.0
         def pg(w, cr):
             rounded_rect(cr, 0, 0, px(146), px(2.4), px(1.2)); cr.set_source_rgba(1, 1, 1, 0.25); cr.fill()
             rounded_rect(cr, 0, 0, px(146) * self.prog.frac, px(2.4), px(1.2)); cr.set_source_rgba(1, 1, 1, 0.95); cr.fill(); return False
         self.prog.connect('draw', pg); self.put(self.prog, px(76), px(310))
-        self.put(Icon('pause', px(18), '#ffffff', 1.5), px(235), px(287))
+        self.pico = Icon('play', px(18), '#ffffff', 1.5); self.put(self.pico, px(235), px(287))
         pev = Gtk.EventBox(); pev.set_visible_window(False); pev.set_size_request(px(30), px(30)); pev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        pev.connect('button-press-event', lambda *a: launch('playerctl play-pause')); self.put(pev, px(229), px(281))
+        pev.connect('button-press-event', lambda *a: (launch('playerctl play-pause'), GLib.timeout_add(450, lambda: (self.refresh_player(), False)[-1]), True)[-1]); self.put(pev, px(229), px(281))
+        GLib.timeout_add_seconds(2, lambda: (self.refresh_player() if self.get_visible() else None, True)[-1])
         self.connect('focus-out-event', self._focus_out); self.set_appearance_ui(State.mode)
+    def refresh_player(self):
+        run_bg(['playerctl', 'metadata', '--format', '{{status}}|{{title}}|{{artist}}|{{position}}|{{mpris:length}}'], self._player_cb, 2)
+    def _player_cb(self, out):
+        p = out.split('|') if out else []
+        if len(p) < 5 or not p[1]:
+            self.title.set_text('Nothing playing'); self.artist.set_text('Play music in any app'); self.pico.set_name_('play'); self.prog.frac = 0.0; self.prog.queue_draw(); return
+        self.title.set_text(p[1][:40]); self.artist.set_text((p[2] or 'Unknown artist')[:40]); self.pico.set_name_('pause' if p[0] == 'Playing' else 'play')
+        try: self.prog.frac = max(0.0, min(1.0, float(p[3]) / float(p[4])))
+        except Exception: self.prog.frac = 0.0
+        self.prog.queue_draw()
     def tile(self, x, y, w, ic, title, sub, on_click, on_right):
         self.put(Box('qstile', px(w), px(47)), px(x), px(y)); self.put(Box('qsicon', px(29), px(29)), px(x + 7), px(y + 9))
         self.put(Icon(ic, px(17), '#ffffff', 1.7), px(x + 13), px(y + 15))
@@ -270,16 +280,16 @@ class ShellApp:
         self.wall.show_all(); self.refresh_status()
     # -- system state
     def read_brightness(self):
-        out = sh_out('brightnessctl -m 2>/dev/null')
-        try: return float(out.split(',')[3].strip('%')) / 100.0
-        except Exception: return 0.76
+        out = sh_out('osb-brightness get 2>/dev/null')
+        try: return max(0.05, min(1.0, float(out) / 100.0))
+        except Exception: return 1.0
     def read_volume(self):
         out = sh_out('wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null')
         try: return min(1.0, float(out.split()[1]))
         except Exception: return 0.68
     def set_brightness(self, v):
         self.brightness = v; self.qs.bright_label.set_text('%d%%' % round(v * 100))
-        launch(['brightnessctl', 's', '%d%%' % max(1, round(v * 100))])
+        launch(['osb-brightness', 'set', '%d' % max(5, round(v * 100))])
     def set_volume(self, v):
         self.volume = v; self.qs.vol_label.set_text('%d%%' % round(v * 100))
         launch(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '%.2f' % v])
@@ -295,7 +305,7 @@ class ShellApp:
     def toggle_qs(self):
         if self.qs.get_visible(): self.qs.hide()
         else:
-            self.qs.show_all(); self.qs.present(); self.refresh_status()
+            self.qs.show_all(); self.qs.present(); self.refresh_status(); self.qs.refresh_player()
             for d in (30, 150): GLib.timeout_add(d, self.qs.place)
     def toggle_wifi(self):
         run_bg(['sh', '-c', "nmcli radio wifi | grep -q '^enabled' && nmcli radio wifi off || nmcli radio wifi on; rfkill unblock wifi 2>/dev/null"], lambda o: self.refresh_status(), 5)

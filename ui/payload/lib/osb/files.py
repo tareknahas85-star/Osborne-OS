@@ -8,10 +8,7 @@ KINDS = {'pdf': ('PDF', 'red', 'PDF document'), 'fig': ('FIG', 'purple', 'Figma 
 IMG = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'}; AUD = {'mp3', 'wav', 'flac', 'ogg', 'm4a'}
 CARD_TONES = ['blue', 'purple', 'red', 'green']
 
-def first_name():
-    try: full = pwd.getpwnam(getpass.getuser()).pw_gecos.split(',')[0] or getpass.getuser()
-    except Exception: full = getpass.getuser()
-    full = full.strip() or getpass.getuser(); return full[:1].upper() + full[1:]
+def first_name(): return display_name()
 
 def initials(n):
     p = n.split(); return (p[0][0] + (p[1][0] if len(p) > 1 else (p[0][1:2] or ''))).upper()
@@ -32,11 +29,12 @@ def kind_of(path, isdir):
     if ext in AUD: return (ext.upper()[:3], 'purple', 'Audio')
     return ((ext or 'FILE').upper()[:4], 'blue', (ext.upper() + ' file') if ext else 'File')
 
+SHOW_HIDDEN = False
 def list_dir(path):
     out = []
     try:
         for e in os.scandir(path):
-            if e.name.startswith('.'): continue
+            if e.name.startswith('.') and not SHOW_HIDDEN: continue
             try: st = e.stat(); out.append((e.name, e.path, e.is_dir(), st.st_mtime, st.st_size))
             except OSError: pass
     except OSError: pass
@@ -167,9 +165,9 @@ class FilesWindow(OsbWindow):
         self.put(w, x, px(y)); self.bottoms.append((w, y)); return w
     def build_sidebar(self):
         name = first_name()
-        self.put(Box('avatar', px(32), px(32)), px(21), px(53))
-        self.put(make_label(initials(name), 10, 'bold', '#ffffff', xalign=0.5, w=px(32), h=px(32)), px(21), px(53))
-        self.put(make_label(name, 11.5, 'semibold', 'text', w=px(120), h=px(18)), px(62), px(51))
+        self.av = Avatar(px(32), None, name); self.put(self.av, px(21), px(53))
+        self.nm = make_label(name, 11.5, 'semibold', 'text', w=px(120), h=px(18)); self.put(self.nm, px(62), px(51))
+        watch_profile(lambda: (self.nm.set_text(display_name()), setattr(self.av, 'name', display_name()), self.av.refresh()))
         self.put(make_label('Personal space', 10, 'normal', 'muted', w=px(120), h=px(14)), px(62), px(70))
         self.put(Icon('chev-d', px(14), 'muted', 1.6), px(176), px(62))
         items = [('Home', 'home', HOME, 101), ('Recent', 'clock', 'recent', 139), ('Starred', 'star', 'starred', 177),
@@ -208,7 +206,8 @@ class FilesWindow(OsbWindow):
         self.pillbox.set_visible(label in self.sidebar_items and label != 'Trash' or label == 'Trash')
     # ---- navigation
     def nav(self, target, label=None):
-        if target == 'recent': self.show_list('Recent', recent_files(40), label='Recent')
+        if target == 'search': self.apply_search()
+        elif target == 'recent': self.show_list('Recent', recent_files(40), label='Recent')
         elif target == 'starred': self.show_list('Starred', [], label='Starred', empty='No starred items yet')
         elif target == 'trash':
             tp = os.path.expanduser('~/.local/share/Trash/files'); self.show_list('Trash', list_dir(tp), label='Trash', empty='Trash is empty')
@@ -224,11 +223,12 @@ class FilesWindow(OsbWindow):
     def back(self):
         if self.hist: self.show_dir(self.hist.pop(), push=False)
     def show_dir(self, path, push=True):
+        if not self._in_search and getattr(self, 'sentry', None) is not None and self.sentry.get_visible(): self.sentry.hide(); self.sentry.set_text(''); self.query = ''
         if push and self.cwd != path: self.hist.append(self.cwd)
         self.cwd = path
         self.highlight('Home' if path == HOME else next((l for l, (i, la, y, t) in self.sidebar_items.items() if t == path), ''))
         if path == HOME: self.home_view()
-        else: self.show_list(os.path.basename(path) or '/', sorted(list_dir(path), key=lambda x: (not x[2], x[0].lower())), label=None, path=path)
+        else: self.show_list(os.path.basename(path) or '/', self.sort_items(list_dir(path)), label=None, path=path)
         self.page.show_all()
     # ---- shared header
     def header(self, crumbs):
@@ -241,8 +241,11 @@ class FilesWindow(OsbWindow):
             wlab = 12 + 6.2 * len(txt)
             P.put(make_label(txt, 10.5, 'semibold' if last else 'normal', 'text' if last else 'muted', w=px(wlab), h=px(16)), px(x), px(22)); x += wlab - 2
             if not last: P.put(Icon('chev-r', px(12), 'muted', 1.6), px(x + 3), px(24)); x += 22
+        act = {'search': bool(getattr(self, 'sentry', None) and self.sentry.get_visible()), 'grid': getattr(self, 'vmode', 'list') == 'grid', 'dots': False}
         for ic, xx in (('search', self.PW - 121), ('grid', self.PW - 81), ('dots', self.PW - 41)):
-            P.put(Icon(ic, px(18), 'muted', 1.6), px(xx), px(21))
+            P.put(Icon(ic, px(18), 'primary' if act[ic] else 'muted', 1.6), px(xx), px(21))
+            ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(34), px(34)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            ev.connect('button-press-event', lambda w, e, k=ic: (self.tool(k, e), True)[-1]); P.put(ev, px(xx - 8), px(13))
         P.put(Box('hline', Wd, max(1, px(1))), 0, px(60))
     def tabs(self):
         P = self.page
@@ -411,9 +414,75 @@ class FilesWindow(OsbWindow):
         if not items:
             P.put(make_label(empty, 10.5, 'normal', 'muted', w=px(400), h=px(16)), px(28), px(190)); return
         sc = Gtk.ScrolledWindow(); sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC); sc.set_size_request(px(self.CW + 4), px(self.H - 187))
-        sc.get_style_context().add_class('osbscroll'); inner = Gtk.Fixed(); inner.set_size_request(px(self.CW), px(52 * len(items) + 8)); sc.add(inner)
-        old = self.page; self.page = inner; self.rows(items, 4, self.CW, 0, 400); self.page = old
+        sc.get_style_context().add_class('osbscroll'); inner = Gtk.Fixed(); sc.add(inner)
+        if self.vmode == 'grid':
+            cols = max(2, self.CW // 150); gw = (self.CW - (cols - 1) * 12) / float(cols); inner.set_size_request(px(self.CW), px(((len(items) + cols - 1) // cols) * 112 + 8))
+            old = self.page; self.page = inner
+            for i, (nm, p, isdir, mt, sz) in enumerate(items[:400]):
+                x = (i % cols) * (gw + 12); y = 4 + (i // cols) * 112; lab, tone, desc = kind_of(p, isdir)
+                inner.put(Box('card', px(gw), px(100)), px(x), px(y)); self.tilebox(x + gw / 2.0 - 20, y + 12, 40, tone, lab, 8)
+                if lab == 'DIR': inner.get_children()[-1].color = INKS[tone]
+                inner.put(make_label(nm, 9, 'semibold', 'text', xalign=0.5, w=px(gw - 10), h=px(15)), px(x + 5), px(y + 60)); inner.put(make_label('Folder' if isdir else desc, 7.5, 'normal', 'muted', xalign=0.5, w=px(gw - 10), h=px(12)), px(x + 5), px(y + 77))
+                ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(gw), px(100)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+                ev.connect('button-press-event', lambda w, e, p=p, d=isdir: (self.row_click(e, p, d), True)[-1]); inner.put(ev, px(x), px(y))
+            self.page = old
+        else:
+            inner.set_size_request(px(self.CW), px(52 * len(items) + 8)); old = self.page; self.page = inner; self.rows(items, 4, self.CW, 0, 400); self.page = old
         P.put(sc, px(28), px(176)); P.show_all()
+    vmode = 'list'; sortkey = 'name'; query = ''; _in_search = False; search_base = None
+    def tool(self, k, e):
+        if k == 'search': self.toggle_search()
+        elif k == 'grid':
+            self.vmode = 'grid' if self.vmode == 'list' else 'list'; self.rebuild_view()
+        else:
+            base = self.cwd if os.path.isdir(self.cwd) else HOME; ck = lambda c: ('\u2713 ' if c else '    ')
+            def setsort(v): self.sortkey = v; self.rebuild_view()
+            def hid(): 
+                global SHOW_HIDDEN
+                SHOW_HIDDEN = not SHOW_HIDDEN; self.rebuild_view()
+            self.menu([('New folder', self.new_folder), ('New text file', self.new_file), ('Paste', self.paste if self.clip else None), None,
+                       (ck(self.sortkey == 'name') + 'Sort by name', lambda: setsort('name')), (ck(self.sortkey == 'date') + 'Sort by date', lambda: setsort('date')), (ck(self.sortkey == 'size') + 'Sort by size', lambda: setsort('size')), None,
+                       (ck(SHOW_HIDDEN) + 'Show hidden files', hid), ('Open terminal here', lambda: subprocess.Popen(['lxterminal', '--working-directory=' + base], start_new_session=True)), ('Refresh', self.rebuild_view)], e)
+    def rebuild_view(self):
+        if self.cwd == 'search': self.apply_search()
+        else: self.rebuild()
+    def sort_items(self, items):
+        k = {'name': lambda x: (not x[2], x[0].lower()), 'date': lambda x: (not x[2], -x[3]), 'size': lambda x: (not x[2], -x[4])}[self.sortkey]
+        return sorted(items, key=k)
+    def toggle_search(self):
+        if getattr(self, 'sentry', None) is None:
+            self.sentry = Gtk.Entry(); self.sentry.set_placeholder_text('Search files'); self.sentry.set_size_request(px(210), px(30)); self.sentry.get_style_context().add_class('osbsearch')
+            self.sentry.connect('changed', self.on_search_changed); self.sentry.connect('key-press-event', lambda w, ev: (self.close_search(), True)[-1] if ev.keyval == Gdk.KEY_Escape else False)
+            self.put(self.sentry, px(211 + self.PW - 345), px(13))
+        if self.sentry.get_visible(): self.close_search(); return
+        if os.path.isdir(self.cwd): self.search_base = self.cwd
+        elif self.search_base is None: self.search_base = HOME
+        self.content.move(self.sentry, px(211 + self.PW - 345), px(13)); self.sentry.set_text(''); self.sentry.show(); self.sentry.grab_focus(); self.apply_search()
+    def close_search(self):
+        if getattr(self, 'sentry', None) is not None and self.sentry.get_visible():
+            self.sentry.hide(); self.sentry.set_text(''); self.query = ''
+            self.show_dir(self.search_base or HOME, push=False)
+        self.grab_focus()
+    def on_search_changed(self, ent):
+        if getattr(self, '_st', None): GLib.source_remove(self._st)
+        self._st = GLib.timeout_add(250, self.apply_search)
+    def apply_search(self):
+        self._st = None
+        q = (self.sentry.get_text() if getattr(self, 'sentry', None) else '').strip().lower(); self.query = q; base = self.search_base or HOME
+        if not q: self._in_search = True; self.show_dir(base, push=False); self._in_search = False; self.cwd = 'search'; return False
+        res = []; seen = 0
+        for root, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            if root[len(base):].count(os.sep) >= 4: dirs[:] = []
+            for n in dirs + files:
+                seen += 1
+                if q in n.lower() and not n.startswith('.'):
+                    pth = os.path.join(root, n)
+                    try: st = os.stat(pth); res.append((n, pth, os.path.isdir(pth), st.st_mtime, st.st_size))
+                    except OSError: pass
+            if seen > 30000 or len(res) >= 300: break
+        self._in_search = True; self.show_list('Search results', self.sort_items(res), label=None, empty='No matches', path=None); self._in_search = False; self.cwd = 'search'
+        return False
     def new_folder(self):
         base = self.cwd if os.path.isdir(self.cwd) else HOME; n = 'New folder'; i = 1
         while os.path.exists(os.path.join(base, n)): i += 1; n = 'New folder %d' % i
@@ -432,7 +501,7 @@ def already_running():
 def main():
     if already_running(): return
     init_mode()
-    c = Gtk.CssProvider(); c.load_from_data(b'.ulblue{background-color:#0a7cff;border-radius:1px;} .osbscroll,.osbscroll viewport{background:transparent;} .osbscroll undershoot,.osbscroll overshoot{background:none;}')
+    c = Gtk.CssProvider(); c.load_from_data(b'.osbsearch{border-radius:15px;padding:2px 12px;font-size:12px;} .ulblue{background-color:#0a7cff;border-radius:1px;} .osbscroll,.osbscroll viewport{background:transparent;} .osbscroll undershoot,.osbscroll overshoot{background:none;}')
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), c, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
     w = FilesWindow(); w.connect('destroy', Gtk.main_quit); w.show_all()
     if '--trash' in sys.argv: w.nav('trash', 'Trash')

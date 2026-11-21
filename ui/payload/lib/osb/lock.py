@@ -15,9 +15,7 @@ class Lock(Gtk.Window):
         super().__init__(type=Gtk.WindowType.TOPLEVEL); scr = Gdk.Screen.get_default(); self.w, self.h = scr.get_width(), scr.get_height()
         self.set_decorated(False); self.set_title('osb-lock'); self.fullscreen(); self.set_keep_above(True); set_rgba_visual(self); self.get_style_context().add_class('osb')
         self.user = getpass.getuser()
-        try: full = pwd.getpwnam(self.user).pw_gecos.split(',')[0] or self.user
-        except Exception: full = self.user
-        self.name = full[:1].upper() + full[1:]; self.surf = None; self.msg = ''
+        self.name = display_name(); self.surf = None; self.msg = ''
         fx = Gtk.Fixed(); self.add(fx); self.fx = fx
         da = Gtk.DrawingArea(); da.set_size_request(self.w, self.h); da.connect('draw', self.draw); fx.put(da, 0, 0); self.da = da
         cx = self.w // 2

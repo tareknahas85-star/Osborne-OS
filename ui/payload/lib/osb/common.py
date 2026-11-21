@@ -2,8 +2,8 @@
 import os, math, colorsys
 import gi
 gi.require_version('Gtk', '3.0'); gi.require_version('Gdk', '3.0')
-gi.require_version('GdkPixbuf', '2.0'); gi.require_version('Pango', '1.0')
-from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Gio, Pango
+gi.require_version('GdkPixbuf', '2.0'); gi.require_version('Pango', '1.0'); gi.require_version('PangoCairo', '1.0')
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Gio, Pango, PangoCairo
 import cairo
 
 CONF = os.path.expanduser('~/.config/osborne')
@@ -141,12 +141,14 @@ ICONS = {
  'bluetooth': '<path d="M7 8l10 8-5 4.2V3.8L17 8 7 16"/>',
  'sun': _sun(),
  'moon': '<path d="M20 14.3A8 8 0 1 1 9.7 4a6.4 6.4 0 0 0 10.3 10.3z"/>',
+ 'play': '<path d="M8.4 5.6v12.8L18.6 12z" fill="currentColor" stroke="none"/>',
  'pause': '<rect x="8" y="5.5" width="2.4" height="13" rx="1.2" fill="currentColor"/><rect x="13.6" y="5.5" width="2.4" height="13" rx="1.2" fill="currentColor"/>',
  'logo': '<path d="M4.2 5.2c0-1 .8-1.9 1.8-2.1l2.4-.5c.9-.2 1.7.5 1.7 1.4v15.6c0 .9-.8 1.7-1.7 1.9l-2.4.5c-1 .2-1.8-.5-1.8-1.5z M13.6 8.7c0-.9.8-1.7 1.7-1.9l2.4-.5c1-.2 1.8.5 1.8 1.4v11.9c0 .9-.7 1.7-1.7 1.9l-2.4.5c-1 .2-1.8-.5-1.8-1.4z" fill="currentColor" stroke="none"/>',
  'bell': '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2H5z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
  'power': '<path d="M12 3.5v8"/><path d="M6.6 6.8a7.8 7.8 0 1 0 10.8 0"/>',
  'restart': '<path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5"/><path d="M19.8 4.2v4.4h-4.4"/>',
  'logout': '<path d="M10 4.5H6.5A2 2 0 0 0 4.5 6.5v11a2 2 0 0 0 2 2H10"/><path d="M15 8l4 4-4 4M19 12H9.5"/>',
+ 'user': '<circle cx="12" cy="8.2" r="3.9"/><path d="M4.6 20c.4-3.9 3.6-6.2 7.4-6.2s7 2.3 7.4 6.2"/>',
  'lock': '<rect x="5" y="10.5" width="14" height="9.5" rx="2.6"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/>',
  'keyboard': '<rect x="3" y="6.5" width="18" height="11" rx="3"/><path d="M7 10.5h.01M11 10.5h.01M15 10.5h.01M7.5 14h9"/>',
  'monitor': '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2.6"/><path d="M9 20h6M12 16.5V20"/>',
@@ -218,6 +220,18 @@ class Icon(Gtk.DrawingArea):
         col = pal(self.color) if not self.color.startswith('#') else self.color
         draw_icon(cr, self.name, 0, 0, self.size, col, self.stroke); return False
     def set_name_(self, name): self.name = name; self.queue_draw()
+
+def draw_emblem(cr, x, y, size, col):
+    """Osborne emblem: a bold ring with a small orbiting dot."""
+    cr.save(); cr.translate(x, y); u = size / 24.0; cr.set_source_rgba(*(hex2rgb(col) if isinstance(col, str) else col))
+    cr.set_line_width(3.3 * u); cr.arc(11.2 * u, 12.8 * u, 7.3 * u, 0, 6.2832); cr.stroke()
+    cr.arc(19.2 * u, 4.8 * u, 2.7 * u, 0, 6.2832); cr.fill(); cr.restore()
+
+class Emblem(Gtk.DrawingArea):
+    def __init__(self, size, color='bar'):
+        super().__init__(); self.size, self.color = size, color; self.set_size_request(int(size), int(size)); self.connect('draw', self._d)
+    def _d(self, w, cr):
+        col = pal(self.color) if not self.color.startswith('#') else self.color; draw_emblem(cr, 0, 0, self.size, col); return False
 
 def beep():
     import subprocess
@@ -346,6 +360,71 @@ _wmon = []
 def watch_wall(cb):
     os.makedirs(CONF, exist_ok=True); f = Gio.File.new_for_path(WALLFILE); m = f.monitor_file(Gio.FileMonitorFlags.NONE, None); _wmon.append(m); m.connect('changed', lambda *a: cb())
 
+# ------------------------------------------------------------------ profile (name + avatar)
+PROFILE = os.path.join(CONF, 'profile'); AVATARF = os.path.join(CONF, 'avatar'); AVATARPNG = os.path.join(CONF, 'avatar.png')
+AVATAR_PRESETS = [('#2f7bff', '#7a5af8', 'emblem'), ('#12b886', '#2f7bff', 'rings'), ('#ff7a45', '#ff3d7f', 'emblem'), ('#f5a524', '#ef4444', 'bars'),
+                  ('#7a5af8', '#22d3ee', 'rings'), ('#334155', '#64748b', 'diamond'), ('#0ea5e9', '#14b8a6', 'bars'), ('#ec4899', '#8b5cf6', 'diamond')]
+def display_name():
+    try:
+        n = open(PROFILE).read().strip().splitlines()[0].strip()
+        if n: return n
+    except Exception: pass
+    import pwd, getpass
+    try: full = pwd.getpwnam(getpass.getuser()).pw_gecos.split(',')[0] or getpass.getuser()
+    except Exception: full = getpass.getuser()
+    full = full.strip() or getpass.getuser(); return full[:1].upper() + full[1:]
+def set_display_name(n):
+    os.makedirs(CONF, exist_ok=True); open(PROFILE, 'w').write(n.strip() + '\n')
+def name_initials(n):
+    p = n.split() or ['?']; return (p[0][0] + (p[1][0] if len(p) > 1 else (p[0][1:2] or ''))).upper()
+def get_avatar():
+    try: return open(AVATARF).read().strip() or 'initials'
+    except Exception: return 'initials'
+def set_avatar(v):
+    os.makedirs(CONF, exist_ok=True); open(AVATARF, 'w').write(v)
+def import_avatar(path):
+    pb = GdkPixbuf.Pixbuf.new_from_file(path); w, h = pb.get_width(), pb.get_height(); m = min(w, h)
+    pb = pb.new_subpixbuf((w - m) // 2, (h - m) // 2, m, m).scale_simple(256, 256, GdkPixbuf.InterpType.BILINEAR)
+    os.makedirs(CONF, exist_ok=True); pb.savev(AVATARPNG, 'png', [], []); set_avatar('file')
+def draw_avatar(cr, size, kind=None, ini='?'):
+    kind = kind or get_avatar(); rr = size * 0.30
+    rounded_rect(cr, 0, 0, size, size, rr); cr.save(); cr.clip()
+    if kind == 'file' and os.path.isfile(AVATARPNG):
+        try:
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_size(AVATARPNG, int(size), int(size)); Gdk.cairo_set_source_pixbuf(cr, pb, 0, 0); cr.paint(); cr.restore(); return
+        except Exception: pass
+    a, b, sym = ('#2f7bff', '#7a5af8', None)
+    if kind.startswith('preset:'):
+        try: a, b, sym = AVATAR_PRESETS[int(kind[7:])]
+        except Exception: pass
+    g = cairo.LinearGradient(0, 0, size, size); g.add_color_stop_rgba(0, *hex2rgb(a)); g.add_color_stop_rgba(1, *hex2rgb(b)); cr.set_source(g); cr.paint()
+    cr.set_source_rgba(1, 1, 1, 0.95); u = size / 24.0
+    if sym == 'emblem': draw_emblem(cr, size * 0.17, size * 0.17, size * 0.66, (1, 1, 1, 0.95))
+    elif sym == 'rings':
+        cr.set_line_width(2.0 * u)
+        for r in (3.2, 6.2, 9.2): cr.arc(12 * u, 12 * u, r * u, 0, 6.2832); cr.stroke(); cr.set_source_rgba(1, 1, 1, 0.95 if r < 9 else 0.6)
+    elif sym == 'bars':
+        for x, y0, y1 in ((6, 9, 17), (10.5, 5, 19), (15, 8, 16)): rounded_rect(cr, x * u, y0 * u, 3 * u, (y1 - y0) * u, 1.5 * u); cr.fill()
+    elif sym == 'diamond':
+        cr.move_to(12 * u, 4.5 * u); cr.line_to(19.5 * u, 12 * u); cr.line_to(12 * u, 19.5 * u); cr.line_to(4.5 * u, 12 * u); cr.close_path(); cr.set_line_width(2.2 * u); cr.stroke()
+        cr.arc(12 * u, 12 * u, 2.3 * u, 0, 6.2832); cr.fill()
+    else:
+        lay = PangoCairo.create_layout(cr); lay.set_font_description(Pango.FontDescription('%s Bold %d' % (FONT, max(6, int(size * 0.34 * 0.75))))); lay.set_text(ini, -1)
+        tw, th = lay.get_pixel_size(); cr.move_to((size - tw) / 2.0, (size - th) / 2.0); PangoCairo.show_layout(cr, lay)
+    cr.restore()
+    rounded_rect(cr, 0.5, 0.5, size - 1, size - 1, rr); cr.set_source_rgba(1, 1, 1, 0.45); cr.set_line_width(1); cr.stroke()
+
+class Avatar(Gtk.DrawingArea):
+    def __init__(self, size, kind=None, name=None):
+        super().__init__(); self.size, self.kind, self.name = size, kind, name; self.set_size_request(int(size), int(size)); self.connect('draw', self._d)
+    def _d(self, w, cr): draw_avatar(cr, self.size, self.kind, name_initials(self.name or display_name())); return False
+    def refresh(self): self.queue_draw()
+_amon = []
+def watch_profile(cb):
+    os.makedirs(CONF, exist_ok=True)
+    for f in (PROFILE, AVATARF, AVATARPNG):
+        m = Gio.File.new_for_path(f).monitor_file(Gio.FileMonitorFlags.NONE, None); _amon.append(m); m.connect('changed', lambda *a: cb())
+
 class OsbWindow(Gtk.Window):
     def __init__(self, cw, ch, margin=0, hint=None, title='osb'):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
@@ -421,5 +500,7 @@ class Switch(Gtk.DrawingArea):
         r = H / 2.0 - pxf(3); cx = W - H / 2.0 if self.on else H / 2.0
         cr.arc(cx, H / 2.0 + pxf(0.8), r + pxf(0.6), 0, 6.3); cr.set_source_rgba(0, 0, 0, 0.14); cr.fill()
         cr.arc(cx, H / 2.0, r, 0, 6.3); cr.set_source_rgba(1, 1, 1, 1); cr.fill(); return False
-    def _p(self, w, e): self.set_on(not self.on); (self.cb(self.on) if self.cb else None); return True
+    def _p(self, w, e):
+        if e.type != Gdk.EventType.BUTTON_PRESS or e.button != 1: return True
+        self.set_on(not self.on); (self.cb(self.on) if self.cb else None); return True
     def set_on(self, v): self.on = bool(v); self.queue_draw()
