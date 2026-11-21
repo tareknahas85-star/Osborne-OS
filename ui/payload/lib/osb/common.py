@@ -141,6 +141,7 @@ ICONS = {
  'bluetooth': '<path d="M7 8l10 8-5 4.2V3.8L17 8 7 16"/>',
  'sun': _sun(),
  'moon': '<path d="M20 14.3A8 8 0 1 1 9.7 4a6.4 6.4 0 0 0 10.3 10.3z"/>',
+ 'calculator': '<rect x="5" y="3.2" width="14" height="17.6" rx="2.6"/><path d="M8.2 7.6h7.6M8.6 12h.01M12 12h.01M15.4 12h.01M8.6 15.6h.01M12 15.6h.01M15.4 15.6h.01"/>',
  'play': '<path d="M8.4 5.6v12.8L18.6 12z" fill="currentColor" stroke="none"/>',
  'pause': '<rect x="8" y="5.5" width="2.4" height="13" rx="1.2" fill="currentColor"/><rect x="13.6" y="5.5" width="2.4" height="13" rx="1.2" fill="currentColor"/>',
  'logo': '<path d="M4.2 5.2c0-1 .8-1.9 1.8-2.1l2.4-.5c.9-.2 1.7.5 1.7 1.4v15.6c0 .9-.8 1.7-1.7 1.9l-2.4.5c-1 .2-1.8-.5-1.8-1.5z M13.6 8.7c0-.9.8-1.7 1.7-1.9l2.4-.5c1-.2 1.8.5 1.8 1.4v11.9c0 .9-.7 1.7-1.7 1.9l-2.4.5c-1 .2-1.8-.5-1.8-1.4z" fill="currentColor" stroke="none"/>',
@@ -426,8 +427,12 @@ def watch_profile(cb):
         m = Gio.File.new_for_path(f).monitor_file(Gio.FileMonitorFlags.NONE, None); _amon.append(m); m.connect('changed', lambda *a: cb())
 
 class OsbWindow(Gtk.Window):
+    draggable = False
+    def _base_drag(self, w, e):
+        if not self.draggable or getattr(self, 'custom_drag', False) or e.button != 1 or e.type != Gdk.EventType.BUTTON_PRESS: return False
+        self.begin_move_drag(1, int(e.x_root), int(e.y_root), e.time); return True
     def __init__(self, cw, ch, margin=0, hint=None, title='osb'):
-        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        super().__init__(type=Gtk.WindowType.TOPLEVEL); self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK); self.connect('button-press-event', self._base_drag)
         self.get_style_context().add_class('osb'); self.set_title(title)
         self.set_decorated(False); set_rgba_visual(self); self.M = margin; self.cw, self.ch = cw, ch
         self.set_resizable(False); self.set_default_size(cw + 2*margin, ch + 2*margin)
@@ -489,6 +494,29 @@ def watch_mode(cb):
         if nm != State.mode: State.mode = nm; apply_css(nm); restyle_labels(); cb(nm)
     m.connect('changed', ch)
 
+
+class PulseBar(Gtk.DrawingArea):
+    """Progress bar that always moves (so it never looks frozen). fraction=None -> indeterminate."""
+    def __init__(self, w, h=8):
+        super().__init__(); self.w, self.h = int(w), px(h); self.frac = None; self.ph = 0.0; self.tid = None; self.set_size_request(self.w, self.h); self.connect('draw', self._d)
+    def _d(self, wd, cr):
+        W, H = self.w, self.h; rounded_rect(cr, 0, 0, W, H, H / 2.0); cr.set_source_rgba(*hex2rgb(pal('track'))); cr.fill()
+        cr.save(); rounded_rect(cr, 0, 0, W, H, H / 2.0); cr.clip()
+        if self.frac is None:
+            sw = W * 0.28; x = (W + sw) * self.ph - sw; rounded_rect(cr, x, 0, sw, H, H / 2.0); cr.set_source_rgba(*hex2rgb(pal('primary'))); cr.fill()
+        else:
+            fw = max(H, W * self.frac); rounded_rect(cr, 0, 0, fw, H, H / 2.0); cr.set_source_rgba(*hex2rgb(pal('primary'))); cr.fill()
+            sw = W * 0.12; x = (fw + sw) * self.ph - sw; g = cairo.LinearGradient(x, 0, x + sw, 0); g.add_color_stop_rgba(0, 1, 1, 1, 0); g.add_color_stop_rgba(0.5, 1, 1, 1, 0.55); g.add_color_stop_rgba(1, 1, 1, 1, 0)
+            cr.rectangle(0, 0, fw, H); cr.clip(); cr.set_source(g); cr.rectangle(x, 0, sw, H); cr.fill()
+        cr.restore(); return False
+    def start(self):
+        if self.tid is None: self.tid = GLib.timeout_add(40, self._tick)
+    def _tick(self):
+        self.ph = (self.ph + 0.018) % 1.0; self.queue_draw(); return True
+    def stop(self):
+        if self.tid is not None: GLib.source_remove(self.tid); self.tid = None
+        self.queue_draw()
+    def set_fraction(self, f): self.frac = f; self.queue_draw()
 
 class Switch(Gtk.DrawingArea):
     """Design toggle: 40x24 pill, blue when on, white knob."""

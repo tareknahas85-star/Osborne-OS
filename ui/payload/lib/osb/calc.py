@@ -17,6 +17,7 @@ def fmt(v):
 KEYS = [['AC', '⌫', '%', '÷'], ['7', '8', '9', '×'], ['4', '5', '6', '−'], ['1', '2', '3', '+'], ['±', '0', '.', '=']]
 
 class Calc(OsbWindow):
+    draggable = True
     def __init__(self):
         cw, ch, m = px(340), px(520), px(40)
         super().__init__(cw, ch, m, None, 'Calculator'); self.shadow = (28, 16, 32)

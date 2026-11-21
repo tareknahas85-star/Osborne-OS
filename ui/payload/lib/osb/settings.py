@@ -19,6 +19,7 @@ CATS = [('Profile', 'user', 'profile'), ('Wi-Fi', 'wifi', 'wifi'), ('Bluetooth',
 CONF = os.path.expanduser('~/.config/osborne')
 
 class SettingsWin(OsbWindow):
+    draggable = True
     W, H = 960, 620
     def __init__(self, start='wifi'):
         m = px(50); super().__init__(px(self.W), px(self.H), m, None, 'Settings'); self.shadow = (28, 16, 32)
@@ -325,7 +326,8 @@ class SettingsWin(OsbWindow):
         self.upd_cur = cur; self.upd_busy = False
         self.row('Installed version', cur[:7] if cur else 'Unknown (installed before updates were tracked)', None)
         self.upd_status = make_label('Checking for updates…', 11, 'semibold', 'text', w=self.PWd, h=px(20)); self.page.put(self.upd_status, px(6), px(self.y)); self.y += 30
-        self.upd_log = make_label('', 9, 'normal', 'muted', w=self.PWd, h=px(16)); self.page.put(self.upd_log, px(6), px(self.y)); self.y += 30
+        self.upd_log = make_label('', 9, 'normal', 'muted', w=self.PWd, h=px(16)); self.page.put(self.upd_log, px(6), px(self.y)); self.y += 26
+        self.upd_bar = PulseBar(self.PWd - px(16)); self.upd_bar.set_no_show_all(True); self.page.put(self.upd_bar, px(6), px(self.y)); self.y += 22
         self.upd_btn = self.btn('Update now', self.do_update, True); self.upd_btn.set_size_request(px(140), px(36)); self.upd_btn.set_sensitive(False); self.page.put(self.upd_btn, px(4), px(self.y))
         self.chk_btn = self.btn('Check again', lambda: self.check_update()); self.chk_btn.set_size_request(px(120), px(36)); self.page.put(self.chk_btn, px(156), px(self.y)); self.y += 56
         self.out_btn = self.btn('Log out now', lambda: subprocess.Popen(['openbox', '--exit'])); self.out_btn.set_size_request(px(140), px(36)); self.out_btn.set_no_show_all(True); self.page.put(self.out_btn, px(4), px(self.y)); self.y += 50
@@ -350,12 +352,26 @@ class SettingsWin(OsbWindow):
     def do_update(self):
         if self.upd_busy: return
         self.upd_busy = True; self.upd_btn.set_sensitive(False); self.chk_btn.set_sensitive(False); self.upd_status.set_text('Updating… this takes a few minutes. Please keep the device on.')
+        self.upd_t0 = self.upd_last = time.time(); self.upd_step = 0; self.upd_bar.show(); self.upd_bar.set_fraction(0.03); self.upd_bar.start()
+        def tick():
+            if not self.upd_busy or self.upd_status.get_parent() is None: return False
+            el = int(time.time() - self.upd_t0); idle = int(time.time() - self.upd_last)
+            t = 'Updating…  %d:%02d' % (el // 60, el % 60) + ('  \u00b7  step %d of 6' % self.upd_step if self.upd_step else '')
+            if idle > 60: t += '  \u00b7  still working, no new messages for %d min' % (idle // 60)
+            self.upd_status.set_text(t); return True
+        self.timers.append(GLib.timeout_add_seconds(1, tick))
         def work():
             try:
-                p = subprocess.Popen(['pkexec', 'bash', '-c', 'curl -fsSL %s | bash' % self.UPD_URL], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                p = subprocess.Popen(['pkexec', 'bash', '-c', 'curl -fsSL %s | OSB_SHA=%s bash' % (self.UPD_URL, getattr(self, 'latest', '') or '')], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 for ln in p.stdout:
                     ln = ln.strip()
-                    if ln: GLib.idle_add(lambda t=ln[:90]: self.upd_log.set_text(t) if self.upd_log.get_parent() else None)
+                    if ln:
+                        m = re.match(r'\[(\d)/6\]', ln)
+                        def ui(t=ln[:90], n=int(m.group(1)) if m else 0):
+                            self.upd_last = time.time()
+                            if n: self.upd_step = n; self.upd_bar.set_fraction(0.05 + 0.9 * (n - 1) / 6.0)
+                            if self.upd_log.get_parent(): self.upd_log.set_text(t)
+                        GLib.idle_add(ui)
                 rc = p.wait()
             except Exception: rc = 1
             GLib.idle_add(self.update_done, rc)
@@ -363,6 +379,7 @@ class SettingsWin(OsbWindow):
     def update_done(self, rc):
         self.upd_busy = False
         if self.upd_status.get_parent() is None: return
+        self.upd_bar.stop(); self.upd_bar.set_fraction(1.0 if rc == 0 else 0.0)
         self.chk_btn.set_sensitive(True)
         if rc == 0:
             self.upd_status.set_text('Update finished. Log out and back in to use the new version.'); self.upd_log.set_text(''); self.out_btn.show()

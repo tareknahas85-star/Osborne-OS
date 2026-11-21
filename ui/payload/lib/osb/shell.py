@@ -130,7 +130,7 @@ class Dock(OsbWindow):
                  ('folder', [(0, '#55abff'), (1, '#0a7cff')], lambda: focus_or_launch('osb-files', 'osb-files'), 'osb-files'),
                  ('globe', None, lambda: focus_or_launch('google-chrome', 'google-chrome-stable'), 'google-chrome'),
                  ('terminal', [(0, '#33343c'), (1, '#16171c')], lambda: focus_or_launch('lxterminal', 'lxterminal'), 'lxterminal'),
-                 ('calendar', [(0, '#ff8f84'), (1, '#f2616c')], lambda: focus_or_launch('osb-calc', 'osb-calc'), 'osb-calc'),
+                 ('calculator', [(0, '#ff8f84'), (1, '#f2616c')], lambda: focus_or_launch('osb-calc', 'osb-calc'), 'osb-calc'),
                  ('gear', [(0, '#a7acb8'), (1, '#7a7f8c')], lambda: focus_or_launch('osb-settings', 'osb-settings'), 'osb-settings')]
         self.dots = {}
         for i, (ic, stops, fn, cls) in enumerate(specs):

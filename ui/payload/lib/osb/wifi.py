@@ -9,6 +9,7 @@ def nm(args, timeout=25):
     except Exception as e: return 1, str(e)
 
 class WifiWin(OsbWindow):
+    draggable = True
     def __init__(self):
         cw, ch, m = px(320), px(420), px(40)
         super().__init__(cw, ch, m, None, 'Wi-Fi'); self.shadow = (26, 14, 30); self.set_wmclass('osb-wifi', 'Osb-wifi')

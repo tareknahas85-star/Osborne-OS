@@ -50,6 +50,7 @@ class Graph(Gtk.DrawingArea):
         cr.stroke(); return False
 
 class Monitor(OsbWindow):
+    draggable = True
     def __init__(self):
         m = px(50); super().__init__(px(W), px(H), m, None, 'System Monitor'); self.shadow = (28, 16, 32)
         self.set_wmclass('osb-monitor', 'Osb-monitor'); self.set_type_hint(Gdk.WindowTypeHint.NORMAL); self.set_position(Gtk.WindowPosition.CENTER); self.enable_escape()

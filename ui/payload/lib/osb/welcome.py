@@ -3,6 +3,7 @@ import os, sys, subprocess
 from .common import *
 
 class Welcome(OsbWindow):
+    draggable = True
     def __init__(self):
         cw, ch, m = px(520), px(440), px(40)
         super().__init__(cw, ch, m, None, 'Welcome'); self.shadow = (28, 16, 32)

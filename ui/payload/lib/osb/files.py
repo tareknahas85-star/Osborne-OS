@@ -115,6 +115,7 @@ def human(n):
         n /= 1024.0
 
 class FilesWindow(OsbWindow):
+    custom_drag = True
     W0, H0 = 1050, 627
     def __init__(self):
         m = px(50); self.W, self.H = self.W0, self.H0

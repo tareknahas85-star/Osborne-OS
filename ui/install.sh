@@ -152,6 +152,15 @@ echo "[6/6] Software stores (Snap + Flathub)..."
 apt-get install -y -qq --no-install-recommends snapd flatpak >/dev/null 2>&1 || echo "  (could not install snapd/flatpak: no internet or not available)"
 command -v flatpak >/dev/null 2>&1 && flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo >/dev/null 2>&1 || true
 systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+# Proton VPN (official free app)
+if ! dpkg -s proton-vpn-gtk-app >/dev/null 2>&1; then
+  echo "  Proton VPN..."
+  PV=$(mktemp -d); if curl -fsSL -m 120 -o "$PV/pvpn.deb" https://repo.protonvpn.com/debian/dists/stable/main/binary-all/protonvpn-stable-release_1.0.8_all.deb && dpkg -i "$PV/pvpn.deb" >/dev/null 2>&1; then
+    apt-get update -qq >/dev/null 2>&1 || true
+    apt-get install -y -qq --no-install-recommends proton-vpn-gtk-app gir1.2-ayatanaappindicator3-0.1 libayatana-appindicator3-1 >/dev/null 2>&1 || echo "  (could not install Proton VPN)"
+  else echo "  (could not download Proton VPN)"; fi
+  rm -rf "$PV"
+fi
 printf '[Desktop Entry]\nType=Application\nName=Software\nComment=Install apps from the Snap Store\nExec=osb-store\nIcon=system-software-install\nCategories=System;\n' > /usr/share/applications/osb-store.desktop
 grep -q snapd/desktop /etc/environment 2>/dev/null || echo 'XDG_DATA_DIRS=/usr/local/share:/usr/share:/var/lib/snapd/desktop:/var/lib/flatpak/exports/share' >> /etc/environment
 echo "Done. Log out and back in (or reboot) to load the new desktop."

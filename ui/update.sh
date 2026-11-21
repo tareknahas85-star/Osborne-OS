@@ -4,7 +4,9 @@
 set -e
 [ "$(id -u)" = 0 ] || { echo "Run with sudo:  curl -fsSL <this url> | sudo bash"; exit 1; }
 BRANCH="${OSB_BRANCH:-main}"
-SHA=$(curl -fsSL -H "User-Agent: osborne" https://api.github.com/repos/tareknahas85-star/Osborne-OS/commits/main | sed -n 's/^  "sha": "\([0-9a-f]*\)".*/\1/p' | head -1)
+SHA="${OSB_SHA:-}"
+echo "$SHA" | grep -Eq '^[0-9a-f]{40}$' || SHA=$(curl -fsSL -H "User-Agent: osborne" -H "Accept: application/vnd.github.sha" https://api.github.com/repos/tareknahas85-star/Osborne-OS/commits/main 2>/dev/null || true)
+echo "$SHA" | grep -Eq '^[0-9a-f]{40}$' || SHA=$(git ls-remote https://github.com/tareknahas85-star/Osborne-OS.git refs/heads/main 2>/dev/null | cut -f1)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 echo "Downloading Osborne UI ($BRANCH)..."
 curl -fsSL "https://github.com/tareknahas85-star/Osborne-OS/archive/refs/heads/$BRANCH.tar.gz" | tar xz -C "$T" --strip-components=1
