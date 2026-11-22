@@ -168,18 +168,36 @@ class TopBar(OsbWindow):
             subprocess.Popen(['xprop', '-id', str(xid), '-f', '_NET_WM_STRUT_PARTIAL', '32c', '-set', '_NET_WM_STRUT_PARTIAL',
                               '0,0,%d,0,0,0,0,0,0,%d,0,0' % (h, self.sw)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e: print('strut', e, file=sys.stderr)
+    def _query_layouts(self):
+        """Synchronous read of the layout list (short, runs only on a click)."""
+        try:
+            q = subprocess.run(['setxkbmap', '-query'], capture_output=True, text=True, timeout=3).stdout
+            m = re.search(r'layout:\s+(\S+)', q)
+            return (m.group(1) if m else 'us').split(',')
+        except Exception: return ['us']
+    def _log_layout(self, msg):
+        try:
+            with open(os.path.join(CONF, 'layout.log'), 'a') as f: f.write(time.strftime('%H:%M:%S ') + msg + '\n')
+        except Exception: pass
+    def _set_label(self, group, layouts):
+        code = layouts[min(group, len(layouts) - 1)] if len(layouts) > 1 else ('ara' if self._rtl() else layouts[0])
+        self.lay.set_text({'us': 'EN', 'gb': 'EN', 'ara': 'AR', 'ar': 'AR', 'fr': 'FR', 'de': 'DE'}.get(code, code[:2].upper()))
     def toggle_layout(self):
         try:
             import ctypes
             if not hasattr(self, '_x11'): self.poll_layout()
+            layouts = self._query_layouts()
+            if len(layouts) < 2:
+                subprocess.run(['setxkbmap', '-layout', 'us,ara', '-option', 'grp:alt_shift_toggle'], timeout=5)
+                layouts = self._query_layouts()
+            self._layouts = layouts; n = max(1, len(layouts))
             st = self._XkbState(); self._x11.XkbGetState(ctypes.c_void_p(self._dpy), 0x0100, ctypes.byref(st))
-            n = max(1, len(self._layouts or ['us']))
-            if n < 2:
-                subprocess.run(['setxkbmap', '-layout', 'us,ara', '-option', 'grp:alt_shift_toggle'], timeout=5); self._layouts = None; n = 2
-            cur = 1 if self._rtl() else 0
-            self._x11.XkbLockGroup(ctypes.c_void_p(self._dpy), 0x0100, (cur + 1) % n); self._x11.XFlush(ctypes.c_void_p(self._dpy))
-            self.poll_layout()
-        except Exception as e: print('layout', e, file=sys.stderr)
+            nxt = (st.group + 1) % n
+            r = self._x11.XkbLockGroup(ctypes.c_void_p(self._dpy), 0x0100, nxt); self._x11.XFlush(ctypes.c_void_p(self._dpy))
+            self._log_layout('click group %s -> %s layouts=%s rc=%s' % (st.group, nxt, layouts, r))
+            self._set_label(nxt, layouts)
+        except Exception as e:
+            self._log_layout('toggle error %r' % (e,)); print('layout', e, file=sys.stderr)
     def _rtl(self):
         try: return Gdk.Keymap.get_for_display(Gdk.Display.get_default()).get_direction() == Pango.Direction.RTL
         except Exception: return False
@@ -196,10 +214,7 @@ class TopBar(OsbWindow):
                     m = re.search(r'layout:\s+(\S+)', q or ''); self._layouts = (m.group(1) if m else 'us').split(',')
                 run_bg(['sh', '-c', 'setxkbmap -query'], got, 3)
             st = self._XkbState(); self._x11.XkbGetState(ctypes.c_void_p(self._dpy), 0x0100, ctypes.byref(st))
-            code = self._layouts[min(st.group, len(self._layouts) - 1)]
-            if self._rtl(): code = 'ara'
-            elif code in ('ara', 'ar'): code = 'us'
-            self.lay.set_text({'us': 'EN', 'ara': 'AR', 'ar': 'AR', 'gb': 'EN', 'fr': 'FR', 'de': 'DE'}.get(code, code[:2].upper()))
+            self._set_label(st.group, self._layouts)
         except Exception as e: pass
         return True
     def tick(self):

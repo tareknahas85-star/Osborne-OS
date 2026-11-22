@@ -153,6 +153,27 @@ k=''.join(l+'\n' for l in k.split('\n') if l.strip() and re.search(r'key="([^"]+
 open(p,'w').write(x.replace('</keyboard>',k+'  </keyboard>',1) if (k and '</keyboard>' in x) else x)
 PY
   fi
+  # text files open in the text editor, not in the browser (user choice wins over the browser's own claim)
+  python3 - "$H/.config/mimeapps.list" <<'MIME'
+import sys, os
+p = sys.argv[1]
+want = {t: 'mousepad.desktop' for t in ('text/plain', 'text/markdown', 'text/x-python', 'text/x-log', 'text/csv', 'application/json', 'application/x-shellscript', 'application/xml', 'text/x-c', 'text/x-shellscript')}
+lines = open(p).read().splitlines() if os.path.exists(p) else []
+out, sec, seen = [], None, set()
+for ln in lines:
+    if ln.startswith('['): sec = ln.strip()
+    if sec == '[Default Applications]' and '=' in ln:
+        k = ln.split('=', 1)[0].strip()
+        if k in want:
+            seen.add(k); out.append('%s=%s' % (k, want[k])); continue
+    out.append(ln)
+if '[Default Applications]' not in [l.strip() for l in out]: out += ['', '[Default Applications]']
+idx = out.index('[Default Applications]') + 1
+add = ['%s=%s' % (k, v) for k, v in want.items() if k not in seen]
+out[idx:idx] = add
+open(p, 'w').write('\n'.join(out) + '\n')
+MIME
+  chown "$U:$U" "$H/.config/mimeapps.list" 2>/dev/null || true
   [ -f "$H/.config/osborne/mode" ] || echo light > "$H/.config/osborne/mode"
   chown -R "$U:$U" "$H/.config/osborne" "$H/.config/openbox"
   [ "$U" = root ] || usermod -aG audio,video,netdev,bluetooth "$U" 2>/dev/null || true
@@ -160,6 +181,9 @@ PY
 for d in /home/*; do u=$(basename "$d"); id "$u" >/dev/null 2>&1 && cfgset "$d" "$u"; done
 install -d /etc/skel/.config/osborne /etc/skel/.config/openbox
 [ -f /etc/skel/.config/openbox/rc.xml ] || cp /etc/xdg/openbox/rc.xml /etc/skel/.config/openbox/rc.xml 2>/dev/null || true
+install -d /etc/xdg
+python3 -c "import sys
+open('/etc/xdg/mimeapps.list','a').close()" 2>/dev/null || true
 cfgset /etc/skel root   # new accounts (made by the first-boot wizard) start with the full Osborne desktop config
 echo "[5/6] Desktop entries..."
 cat > /usr/share/applications/osb-files.desktop <<'DE'
