@@ -56,8 +56,8 @@ INKS = dict(blue='#0a7cff', purple='#7c5cf0', red='#ef7a66', green='#1fa98a')
 
 # ------------------------------------------------------------------ accent colour (user choice)
 ACCENTFILE = os.path.join(CONF, 'accent')
-ACCENTS = [('Blue', '#0a7cff'), ('Purple', '#7a5af8'), ('Pink', '#e0509a'), ('Red', '#e5484d'), ('Orange', '#f08a1c'), ('Green', '#1fa971'), ('Teal', '#12a594')]
-ACC = dict(base='#0a7cff', top='#2b90ff', glow='rgba(10,124,255,0.38)')
+ACCENTS = [('Blue', '#0a7cff'), ('Purple', '#7a5af8'), ('Pink', '#e0509a'), ('Red', '#e5484d'), ('Orange', '#ff8a3d'), ('Green', '#1fa971'), ('Teal', '#12a594')]
+ACC = dict(base='#ff8a3d', top='#ffa26b', glow='rgba(255,138,61,0.38)')
 def _h2t(h): h = h.lstrip('#'); return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 def _t2h(t): return '#%02x%02x%02x' % tuple(max(0, min(255, int(round(v)))) for v in t)
 def mix_hex(a, b, t):
@@ -65,8 +65,8 @@ def mix_hex(a, b, t):
 def get_accent():
     try:
         v = open(ACCENTFILE).read().strip()
-        return v if len(v) == 7 and v.startswith('#') and int(v[1:], 16) >= 0 else '#0a7cff'
-    except Exception: return '#0a7cff'
+        return v if len(v) == 7 and v.startswith('#') and int(v[1:], 16) >= 0 else '#ff8a3d'
+    except Exception: return '#ff8a3d'
 def apply_accent(hexc=None):
     hexc = hexc or get_accent(); r, g, b = _h2t(hexc)
     ACC.update(base=hexc, top=mix_hex(hexc, '#ffffff', 0.16), glow='rgba(%d,%d,%d,0.38)' % (r, g, b))
@@ -536,12 +536,24 @@ class OsbWindow(Gtk.Window):
             cr.set_source_rgba(c[0], c[1], c[2], c[3] / N * 0.9); cr.fill()
         return False
     def _shape(self, *_):
+        # clickable area = the visible rounded window, so the corners and the empty margin let clicks through
         gw = self.get_window()
-        if gw: gw.input_shape_combine_region(cairo.Region(cairo.RectangleInt(self.M, self.M, self.cw, self.ch)), 0, 0)
+        if not gw: return
+        r = int(round(pxf(self.shadow[0]))) if self.shadow else 0
+        r = max(0, min(r, self.cw // 2, self.ch // 2)); rows = []
+        for y in range(self.ch):
+            d = y + 0.5
+            if d < r: inset = r - math.sqrt(max(0.0, r * r - (r - d) ** 2))
+            elif d > self.ch - r: inset = r - math.sqrt(max(0.0, r * r - (d - (self.ch - r)) ** 2))
+            else: inset = 0.0
+            x0 = int(math.ceil(inset)); x1 = self.cw - int(math.ceil(inset))
+            if x1 > x0: rows.append(cairo.RectangleInt(self.M + x0, self.M + y, x1 - x0, 1))
+        gw.input_shape_combine_region(cairo.Region(rows), 0, 0)
     def put(self, w, x, y): self.content.put(w, int(x), int(y)); return w
     def set_content_size(self, cw, ch):
         self.cw, self.ch = int(cw), int(ch); self.content.set_size_request(self.cw, self.ch)
         self.fixed.set_size_request(self.cw + 2*self.M, self.ch + 2*self.M); self.resize(self.cw + 2*self.M, self.ch + 2*self.M)
+        self._shape()
         self._shape(); self.queue_draw()
     def dismiss_on_outside(self):
         """Close on Escape and on any click outside the window (works even when the window manager never focuses it)."""

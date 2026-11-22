@@ -13,7 +13,7 @@ def _accent():
         v = open(os.path.join(HOME, '.config/osborne/accent')).read().strip()
         if len(v) == 7 and v.startswith('#'): int(v[1:], 16); return v
     except Exception: pass
-    return '#0a7cff'
+    return '#ff8a3d'
 def _mix(a, b, t):
     A = [int(a[i:i+2], 16) for i in (1, 3, 5)]; B = [int(b[i:i+2], 16) for i in (1, 3, 5)]
     return '#%02x%02x%02x' % tuple(int(round(A[i] * (1 - t) + B[i] * t)) for i in range(3))

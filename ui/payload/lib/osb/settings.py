@@ -719,14 +719,17 @@ class SettingsWin(OsbWindow):
         self.upd_arrow = Gtk.Button(label='\u25B8 Details'); self.upd_arrow.connect('clicked', lambda *a: self.toggle_details()); self.upd_arrow.set_size_request(px(86), px(26)); self.page.put(self.upd_arrow, self.PWd - px(130), px(self.y - 9)); self.y += 22
         self.upd_btn = self.btn('Update now', self.do_update, True); self.upd_btn.set_size_request(px(140), px(36)); self.upd_btn.set_sensitive(False); self.page.put(self.upd_btn, px(4), px(self.y))
         self.chk_btn = self.btn('Check again', lambda: self.check_update()); self.chk_btn.set_size_request(px(120), px(36)); self.page.put(self.chk_btn, px(156), px(self.y)); self.y += 56
-        self.out_btn = self.btn('Restart desktop', lambda: self.restart_shell()); self.out_btn.set_size_request(px(160), px(36)); self.out_btn.set_no_show_all(True); self.page.put(self.out_btn, px(290), px(self.y - 56)); self.y += 0
+        self.out_btn = self.btn('Restart computer', lambda: self.restart_computer()); self.out_btn.set_size_request(px(160), px(36)); self.out_btn.set_no_show_all(True); self.page.put(self.out_btn, px(290), px(self.y - 56)); self.y += 0
         self.det_open = False; self.det_h = px(230)
         sc = Gtk.ScrolledWindow(); sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC); sc.set_size_request(self.PWd - px(12), self.det_h)
-        tv = Gtk.TextView(); tv.set_editable(False); tv.set_cursor_visible(False); tv.set_monospace(True); tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR); tv.set_left_margin(10); tv.set_right_margin(10); tv.set_top_margin(8); tv.get_style_context().add_class('osblog')
+        tv = Gtk.TextView(); tv.set_editable(False); tv.set_cursor_visible(False); tv.set_monospace(True); tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR); tv.set_left_margin(10); tv.set_right_margin(10); tv.set_top_margin(8); tv.get_style_context().add_class('osblog'); tv.show()
         sc.add(tv); sc.set_no_show_all(True); self.det_sc = sc; self.det_tv = tv; self.page.put(sc, px(6), px(self.y)); self.y += 230 + 8
         if not hasattr(self, 'upd_lines'): self.upd_lines = []
         self.note('Needs an internet connection. Your files and settings are kept.')
         self.check_update()
+    def restart_computer(self):
+        subprocess.Popen(['systemctl', 'reboot'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.upd_status.set_text('Restarting the computer…')
     def restart_shell(self):
         subprocess.Popen(['bash', '-c', 'pkill -f "[p]ython.*osb-shell"; sleep 1; setsid osb-shell >/dev/null 2>&1 &'], start_new_session=True)
         self.out_btn.set_sensitive(False); self.upd_status.set_text('Restarting the desktop…')
@@ -755,14 +758,21 @@ class SettingsWin(OsbWindow):
             try:
                 with urllib.request.urlopen(urllib.request.Request(self.API, headers={'User-Agent': 'osborne'}), timeout=12) as r: sha = json.load(r)['sha']
             except Exception: sha = None
-            GLib.idle_add(self.checked, sha)
+            ver = ''
+            if sha:
+                try:
+                    src = urllib.request.urlopen(urllib.request.Request('https://raw.githubusercontent.com/tareknahas85-star/Osborne-OS/%s/ui/payload/lib/osb/version.py' % sha, headers={'User-Agent': 'osborne'}), timeout=12).read().decode('utf-8', 'replace')
+                    m = re.search(r'VERSION\s*=\s*"([^"]+)"', src); ver = m.group(1) if m else ''
+                except Exception: ver = ''
+            GLib.idle_add(self.checked, sha, ver)
         threading.Thread(target=work, daemon=True).start()
-    def checked(self, sha):
+    def checked(self, sha, ver=''):
         if self.cur != 'update' or self.upd_status.get_parent() is None: return
         self.latest = sha
+        nv = ('v%s' % ver if ver else 'build %s' % sha[:7]) if sha else ''
         if not sha: self.upd_status.set_text('Could not check for updates (GitHub is not answering). You can still try "Update now".'); self.upd_btn.set_sensitive(True)
         elif sha == self.upd_cur: self.upd_status.set_text('Osborne is up to date.'); self.upd_btn.set_sensitive(False)
-        else: self.upd_status.set_text('A new version is available.'); self.upd_btn.set_sensitive(True)
+        else: self.upd_status.set_text('A new version is available: %s (build %s)' % (nv, sha[:7])); self.upd_btn.set_sensitive(True)
     def do_update(self):
         if self.upd_busy: return
         pw = ask_password(self, 'Update Osborne', 'Type your account password to install the update.', 'Update')
@@ -808,7 +818,7 @@ class SettingsWin(OsbWindow):
         self.upd_bar.stop(); self.upd_bar.set_fraction(1.0 if rc == 0 else 0.0)
         self.chk_btn.set_sensitive(True)
         if rc == 0:
-            self.upd_status.set_text('Update finished. Press "Restart desktop" to load the new version.'); self.upd_log.set_text(''); self.out_btn.show()
+            self.upd_status.set_text('Update finished. Press "Restart computer" to load the new version.'); self.upd_log.set_text(''); self.out_btn.show()
             try: self.upd_cur = open('/usr/local/lib/osborne/version').read().strip()
             except Exception: pass
         else:

@@ -24,6 +24,8 @@ echo "[2/6] Installing shell + apps..."
 install -d /usr/local/lib/osborne
 [ -f "$HERE/update.py" ] && install -m 755 "$HERE/update.py" /usr/local/lib/osborne/update.py
 rm -rf /usr/local/lib/osborne/osb; cp -r "$P/lib/osb" /usr/local/lib/osborne/osb
+install -d /usr/share/osborne && cp "$P/share/osborne/"* /usr/share/osborne/
+install -d /etc/lightdm && printf '[greeter]\nbackground=/usr/share/osborne/login.png\nuser-background=false\ntheme-name=Adwaita-dark\nfont-name=Inter 12\nclock-format=%%H:%%M  %%a %%d %%b\n' > /etc/lightdm/lightdm-gtk-greeter.conf
 for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store osb-setup osb-clip osb-capture osb-widgets; do
   sed 's#^sys.path.insert.*#sys.path.insert(0, "/usr/local/lib/osborne")#' "$P/bin/$b" > /usr/local/bin/$b; chmod 755 /usr/local/bin/$b; done
 install -m 755 "$P/bin/osb-launcher" /usr/local/bin/
@@ -94,6 +96,8 @@ cfgset() { # $1 = home dir, $2 = user
   local H="$1" U="$2"
   install -d -o "$U" -g "$U" "$H/.config/osborne" "$H/.config/openbox"
   cp "$P/cfg/"* "$H/.config/osborne/"
+  install -d -o "$U" -g "$U" "$H/.config/osborne/wallpapers"; cp /usr/share/osborne/wall-*.png "$H/.config/osborne/wallpapers/" 2>/dev/null; chown "$U:$U" "$H/.config/osborne/wallpapers/"* 2>/dev/null || true
+  [ -f "$H/.config/osborne/wallpaper" ] || { echo /usr/share/osborne/wall-dark.png > "$H/.config/osborne/wallpaper"; chown "$U:$U" "$H/.config/osborne/wallpaper"; }
   [ -f "$H/.config/openbox/autostart" ] && [ ! -f "$H/.config/openbox/autostart.pre-ui2" ] && cp "$H/.config/openbox/autostart" "$H/.config/openbox/autostart.pre-ui2"
   cat > "$H/.config/openbox/autostart" <<'AS'
 # Osborne OS UI v4
