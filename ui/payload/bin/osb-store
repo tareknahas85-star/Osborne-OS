@@ -1,7 +1,5 @@
-#!/bin/bash
-# Opens the Snap Store (installs it first if it is missing).
-if ! snap list snap-store >/dev/null 2>&1; then
-  notify-send "Software" "Setting up the store for the first time. This needs internet." 2>/dev/null
-  pkexec snap install snap-store || { notify-send "Software" "Could not set up the store. Check the internet and try again." 2>/dev/null; exit 1; }
-fi
-exec snap run snap-store "$@"
+#!/usr/bin/python3
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from osb.store import main
+main()

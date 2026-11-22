@@ -14,7 +14,7 @@ def bg(cmd, cb=None, timeout=30):
     threading.Thread(target=w, daemon=True).start()
 
 CATS = [('Profile', 'user', 'profile'), ('Wi-Fi', 'wifi', 'wifi'), ('Bluetooth', 'bluetooth', 'bluetooth'), ('Sound', 'speaker', 'sound'), ('Display', 'monitor', 'display'),
-        ('Appearance', 'palette', 'appearance'), ('Keyboard', 'keyboard', 'keyboard'), ('Date & Time', 'clock', 'time'),
+        ('Appearance', 'palette', 'appearance'), ('Customize', 'grid', 'customize'), ('Keyboard', 'keyboard', 'keyboard'), ('Date & Time', 'clock', 'time'),
         ('Storage', 'disk', 'storage'), ('System Info', 'info', 'about'), ('System Update', 'download', 'update'), ('About', 'star', 'creator')]
 CONF = os.path.expanduser('~/.config/osborne')
 
@@ -29,7 +29,7 @@ class SettingsWin(OsbWindow):
         self.put(make_label('Settings', 15, 'bold', 'text', w=px(150), h=px(22)), px(22), px(58))
         self.pill = Box('pill', px(192), px(38)); self.put(self.pill, px(14), px(100)); self.items = {}
         for i, (name, ic, key) in enumerate(CATS):
-            y = 100 + i * 42; icn = Icon(ic, px(18), 'text', 1.5); lab = make_label(name, 11.5, 'medium', 'text', w=px(140), h=px(18))
+            y = 100 + i * 38; icn = Icon(ic, px(18), 'text', 1.5); lab = make_label(name, 11.5, 'medium', 'text', w=px(140), h=px(18))
             self.put(icn, px(26), px(y + 10)); self.put(lab, px(55), px(y + 10))
             ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(192), px(38)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             ev.connect('button-press-event', lambda w, e, k=key: (self.show(k), True)[-1]); self.put(ev, px(14), px(y)); self.items[key] = (icn, lab, y)
@@ -194,20 +194,100 @@ class SettingsWin(OsbWindow):
             self.page.put(da, x, y); self.page.put(make_label(name, 9.5, 'normal', 'muted', w=tw, h=px(14)), x, y + th + px(4))
         rows = (len(opts) + per - 1) // per; self.y += rows * (70 + 30) + 6
         self.note('Put your own pictures in the Pictures folder and they will show up here.')
+    def run_theme(self, m):
+        try: subprocess.Popen(['osb-apply-theme', m])
+        except Exception as e: print('apply-theme', e, file=sys.stderr)
     def set_theme(self, m):
-        State.mode = m; set_mode(m); apply_css(m); restyle_labels(); subprocess.Popen(['osb-apply-theme', m]); self.show('appearance', True)
+        State.mode = m; set_mode(m); apply_css(m); restyle_labels(); self.run_theme(m); self.show('appearance', True)
         for w in Gtk.Window.list_toplevels(): w.queue_draw()
+    def p_customize(self):
+        from .shell import BUILTIN, item_label
+        self.sect('Accent colour', 0)
+        cur = get_accent(); per = 7; sw_ = px(52)
+        for i, (nm, hx) in enumerate(ACCENTS):
+            da = Gtk.DrawingArea(); da.set_size_request(sw_, sw_); da.add_events(Gdk.EventMask.BUTTON_PRESS_MASK); da.hx = hx
+            def dr(w, cr, hx=hx, sw_=sw_):
+                rounded_rect(cr, px(3), px(3), sw_ - px(6), sw_ - px(6), px(14)); cr.set_source_rgba(*hex2rgb(hx)); cr.fill()
+                if hx.lower() == get_accent().lower():
+                    cr.set_source_rgb(1, 1, 1); cr.set_line_width(px(2.6)); cr.move_to(px(17), px(27)); cr.line_to(px(23), px(33)); cr.line_to(px(35), px(19)); cr.stroke()
+                return False
+            da.connect('draw', dr); da.connect('button-press-event', lambda w, e, hx=hx: (self.pick_accent(hx), True)[-1]); self.page.put(da, px(2) + i * (sw_ + px(8)), px(self.y))
+        self.y += 62; self.note('Changes buttons, highlights, switches and selections across the whole system.')
+        # ---- dock
+        dock = load_dock()
+        self.sect('Dock')
+        seg = Gtk.Box(spacing=px(6))
+        for key, lab in (('small', 'Small'), ('medium', 'Medium'), ('large', 'Large')):
+            b = Gtk.Button(label=lab); b.set_size_request(px(70), px(30))
+            if dock['size'] == key: b.get_style_context().add_class('suggested-action')
+            b.connect('clicked', lambda w, k=key: self.dock_set(size=k)); seg.pack_start(b, False, False, 0)
+        self.row('Icon size', 'How big the dock icons are', seg, rw=230)
+        self.row('Show Trash', 'Keep the Trash icon at the end of the dock', Switch(dock['trash'], lambda on: self.dock_set(trash=on)), rw=42)
+        self.page.put(make_label('Dock apps', 11, 'semibold', 'text', w=px(300), h=px(18)), px(4), px(self.y + 2)); self.page.put(self.btn('+ Add app', self.add_dock_app, True), self.PWd - px(130), px(self.y - 4)); self.y += 36
+        items = list(dock['items'])
+        for idx, it in enumerate(items):
+            box = Gtk.Box(spacing=px(6))
+            for txt, fn, ok in (('↑', lambda i=idx: self.dock_move(i, -1), idx > 0), ('↓', lambda i=idx: self.dock_move(i, 1), idx < len(items) - 1), ('Remove', lambda i=idx: self.dock_remove(i), len(items) > 1)):
+                b = Gtk.Button(label=txt); b.set_sensitive(ok); b.set_size_request(px(34 if len(txt) == 1 else 72), px(28)); b.connect('clicked', lambda w, f=fn: f()); box.pack_start(b, False, False, 0)
+            self.row(item_label(it), 'Built-in' if it in BUILTIN else 'Added app', box, h=52, rw=184)
+        self.page.put(self.btn('Reset dock', lambda: (save_json(DOCKFILE, DOCK_DEFAULT), self.show('customize', True))), px(2), px(self.y)); self.y += 44
+        # ---- top bar
+        bar = load_bar()
+        self.sect('Top bar')
+        for key, title, sub in (('activities', 'Activities', 'The "Activities" button on the left'), ('appname', 'App name', 'Shows which app is active'), ('lang', 'Language', 'EN / AR indicator'),
+                                ('bell', 'Notifications', 'Notification centre button'), ('wifi', 'Wi-Fi icon', ''), ('vol', 'Sound icon', ''), ('bat', 'Battery icon', ''), ('clock', 'Clock', '')):
+            self.row(title, sub, Switch(bar[key], lambda on, k=key: self.bar_set(k, on)), rw=42, h=52 if sub else 46)
+        self.page.put(self.btn('Reset top bar', lambda: (save_json(BARFILE, BAR_DEFAULT), self.show('customize', True))), px(2), px(self.y)); self.y += 44
+    def pick_accent(self, hx):
+        set_accent(hx); apply_accent(hx); apply_css(State.mode); restyle_labels(); self.run_theme(State.mode)
+        for w in Gtk.Window.list_toplevels(): w.queue_draw()
+        self.show('customize', True)
+    def dock_set(self, **kw):
+        d = load_dock(); d.update(kw); save_json(DOCKFILE, d); self.show('customize', True)
+    def dock_move(self, i, delta):
+        d = load_dock(); it = d['items']; j = i + delta
+        if 0 <= j < len(it): it[i], it[j] = it[j], it[i]; save_json(DOCKFILE, d)
+        self.show('customize', True)
+    def dock_remove(self, i):
+        d = load_dock()
+        if len(d['items']) > 1: d['items'].pop(i); save_json(DOCKFILE, d)
+        self.show('customize', True)
+    def bar_set(self, key, on):
+        d = load_bar(); d[key] = bool(on); save_json(BARFILE, d)
+    def add_dock_app(self):
+        d = Gtk.Dialog(title='Add to dock', transient_for=self, modal=True); d.set_decorated(True); d.set_default_size(px(420), px(520))
+        box = d.get_content_area(); box.set_spacing(8); box.set_border_width(14)
+        ent = Gtk.SearchEntry(); ent.set_placeholder_text('Search apps'); box.pack_start(ent, False, False, 0)
+        sc = Gtk.ScrolledWindow(); sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC); sc.set_vexpand(True); lb = Gtk.ListBox(); sc.add(lb); box.pack_start(sc, True, True, 0)
+        cur = set(load_dock()['items']); cands = []
+        from .shell import BUILTIN as _B, app_info as _ai
+        for k, v in _B.items():
+            if k not in cur: cands.append((v[4], k, None))
+        seen = set()
+        for ai in sorted(Gio.AppInfo.get_all(), key=lambda a: a.get_name().lower()):
+            if not ai.should_show() or ai.get_name() in seen: continue
+            did = ai.get_id()
+            if not did or ('app:' + did) in cur: continue
+            seen.add(ai.get_name()); cands.append((ai.get_name(), 'app:' + did, ai.get_icon()))
+        for name, key, gi in cands:
+            row = Gtk.ListBoxRow(); hb = Gtk.Box(spacing=10); hb.set_border_width(6)
+            if gi: img = Gtk.Image.new_from_gicon(gi, Gtk.IconSize.LARGE_TOOLBAR); hb.pack_start(img, False, False, 0)
+            lab = Gtk.Label(label=name); lab.set_xalign(0); hb.pack_start(lab, True, True, 0); row.add(hb); row.key = key; row.nm = name.lower(); lb.add(row)
+        lb.set_filter_func(lambda r: not ent.get_text().strip() or ent.get_text().strip().lower() in r.nm); ent.connect('search-changed', lambda e: lb.invalidate_filter())
+        def chosen(l, r):
+            dd = load_dock(); dd['items'].append(r.key); save_json(DOCKFILE, dd); d.destroy(); self.show('customize', True)
+        lb.connect('row-activated', chosen); d.add_button('Cancel', Gtk.ResponseType.CANCEL); d.show_all(); d.run(); d.destroy()
     def p_keyboard(self):
         cur = (re.search(r'layout:\s+(\S+)', sh('setxkbmap -query')) or [0, 'us'])[1]
         try: cur = re.search(r'-layout (\S+)', open(os.path.join(CONF, 'keyboard.sh')).read()).group(1)
         except Exception: pass
-        have = set(cur.split(','))
+        have = set(('ara' if c == 'ar' else c) for c in cur.split(','))
         self.sect('Layouts', 0); self.note('Press Alt + Shift to switch between the layouts you enable.')
         def apply():
-            ls = [l for l in ('us', 'ar') if l in self.have] or ['us']; self.have = set(ls)
+            ls = [l for l in ('us', 'ara') if l in self.have] or ['us']; self.have = set(ls)
             os.makedirs(CONF, exist_ok=True); cmd = 'setxkbmap -layout %s -option grp:alt_shift_toggle' % ','.join(ls); open(os.path.join(CONF, 'keyboard.sh'), 'w').write('#!/bin/sh\n' + cmd + '\n'); subprocess.Popen(cmd + '; sleep 2; ' + cmd, shell=True)
         self.have = have
-        for code, name, sub in (('us', 'English (US)', 'QWERTY'), ('ar', 'Arabic', 'العربية')):
+        for code, name, sub in (('us', 'English (US)', 'QWERTY'), ('ara', 'Arabic', 'العربية')):
             def tog(on, c=code):
                 (self.have.add if on else self.have.discard)(c); apply()
             self.row(name, sub, Switch(code in have, tog), rw=42)

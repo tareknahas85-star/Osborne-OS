@@ -1,5 +1,5 @@
 """Osborne shell - shared theme, icons and widgets (matches the HeroUI Linux Desktop design)."""
-import os, math, colorsys
+import os, sys, math, colorsys
 import gi
 gi.require_version('Gtk', '3.0'); gi.require_version('Gdk', '3.0')
 gi.require_version('GdkPixbuf', '2.0'); gi.require_version('Pango', '1.0'); gi.require_version('PangoCairo', '1.0')
@@ -51,8 +51,48 @@ P = {
 TINTS = dict(blue='#e6f2fe', purple='#eeeaff', red='#ffe8e7', green='#e6f7f1')
 INKS = dict(blue='#0a7cff', purple='#7c5cf0', red='#ef7a66', green='#1fa98a')
 
+# ------------------------------------------------------------------ accent colour (user choice)
+ACCENTFILE = os.path.join(CONF, 'accent')
+ACCENTS = [('Blue', '#0a7cff'), ('Purple', '#7a5af8'), ('Pink', '#e0509a'), ('Red', '#e5484d'), ('Orange', '#f08a1c'), ('Green', '#1fa971'), ('Teal', '#12a594')]
+ACC = dict(base='#0a7cff', top='#2b90ff', glow='rgba(10,124,255,0.38)')
+def _h2t(h): h = h.lstrip('#'); return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+def _t2h(t): return '#%02x%02x%02x' % tuple(max(0, min(255, int(round(v)))) for v in t)
+def mix_hex(a, b, t):
+    A, B = _h2t(a), _h2t(b); return _t2h([A[i] * (1 - t) + B[i] * t for i in range(3)])
+def get_accent():
+    try:
+        v = open(ACCENTFILE).read().strip()
+        return v if len(v) == 7 and v.startswith('#') and int(v[1:], 16) >= 0 else '#0a7cff'
+    except Exception: return '#0a7cff'
+def apply_accent(hexc=None):
+    hexc = hexc or get_accent(); r, g, b = _h2t(hexc)
+    ACC.update(base=hexc, top=mix_hex(hexc, '#ffffff', 0.16), glow='rgba(%d,%d,%d,0.38)' % (r, g, b))
+    P['light']['primary'] = P['dark']['primary'] = hexc
+    P['light']['pill'] = P['light']['tile'] = mix_hex(hexc, '#ffffff', 0.9)
+    P['dark']['pill'] = P['dark']['tile'] = mix_hex(hexc, '#1c2029', 0.78)
+def set_accent(hexc):
+    os.makedirs(CONF, exist_ok=True); open(ACCENTFILE, 'w').write(hexc)
+
+# ------------------------------------------------------------------ dock / top bar settings
+import json
+DOCKFILE = os.path.join(CONF, 'dock.json'); BARFILE = os.path.join(CONF, 'topbar.json')
+DOCK_DEFAULT = dict(items=['apps', 'files', 'browser', 'terminal', 'calculator', 'settings'], size='medium', trash=True)
+BAR_DEFAULT = dict(activities=True, appname=True, lang=True, bell=True, wifi=True, vol=True, bat=True, clock=True)
+def load_json(path, default):
+    d = dict(default)
+    try:
+        x = json.load(open(path))
+        if isinstance(x, dict): d.update({k: x[k] for k in x if k in default})
+    except Exception: pass
+    return d
+def save_json(path, d):
+    os.makedirs(CONF, exist_ok=True); tmp = path + '.tmp'; json.dump(d, open(tmp, 'w')); os.replace(tmp, path)
+def load_dock(): return load_json(DOCKFILE, DOCK_DEFAULT)
+def load_bar(): return load_json(BARFILE, BAR_DEFAULT)
+
 class State: mode = 'light'
 def pal(k): return P[State.mode][k]
+apply_accent()
 
 def hex2rgb(h):
     if h.startswith('rgba'):
@@ -68,7 +108,7 @@ window.osb {{ background: transparent; }}
 .sidebar {{ background-color:{p['sidebar']}; border-radius:{r(28)} 0 0 {r(28)}; border-right:1px solid {p['border']}; }}
 .hline {{ background-color:{p['border']}; }}
 .pill {{ background-color:{p['pill']}; border-radius:{r(12)}; }}
-.btnp {{ background-image: linear-gradient(180deg,#2b90ff,#0a7cff); border-radius:{r(14)}; box-shadow: 0 {r(8)} {r(20)} rgba(10,124,255,0.38); }}
+.btnp {{ background-image: linear-gradient(180deg,{ACC['top']},{ACC['base']}); border-radius:{r(14)}; box-shadow: 0 {r(8)} {r(20)} {ACC['glow']}; }}
 .card {{ background-color:{p['card']}; border:1px solid {p['border']}; border-radius:{r(18)}; }}
 .store {{ background-color:{p['storebg']}; border:1px solid {p['border']}; border-radius:{r(14)}; }}
 .tile-blue {{ background-color:{TINTS['blue']}; border-radius:{r(11)}; }}
@@ -79,7 +119,7 @@ window.osb {{ background: transparent; }}
 .avatar {{ background-image: linear-gradient(135deg,#2f7bff 0%,#7a5af8 62%,#d46fb5 100%); border-radius:{r(11)}; border:1px solid rgba(255,255,255,0.45); }}
 .panel {{ background-color:{p['panel']}; border-radius:{r(26)}; border:1px solid {p['panelb']}; }}
 .qstile {{ background-color:{p['tile']}; border-radius:{r(16)}; }}
-.qsicon {{ background-image: linear-gradient(180deg,#1688ff,#0a7cff); border-radius:{r(10)}; }}
+.qsicon {{ background-image: linear-gradient(180deg,{ACC['top']},{ACC['base']}); border-radius:{r(10)}; }}
 .qsrow {{ background-color:{p['row']}; border-radius:{r(14)}; }}
 .seg {{ background-color:{p['seg']}; border-radius:{r(10)}; }}
 .segact {{ background-color:{p['pill']}; border-radius:{r(8)}; }}
@@ -88,6 +128,12 @@ window.osb {{ background: transparent; }}
 .dock {{ background-color:{p['tray']}; border-radius:{r(22)}; border:1px solid {p['trayb']}; }}
 .rowline {{ background-color:{p['border']}; }}
 .menu-popup {{ background-color:{p['panel']}; border-radius:{r(16)}; border:1px solid {p['border']}; box-shadow: 0 {r(14)} {r(40)} {p['shadow']}; }}
+menu, .menu {{ background-color:{p['panel']}; border-radius:{r(12)}; border:1px solid {p['border']}; padding:{r(6)} {r(4)}; color:{p['text']}; }}
+menuitem {{ border-radius:{r(8)}; padding:{r(6)} {r(12)}; color:{p['text']}; }}
+menuitem:hover {{ background-color:{p['pill']}; }}
+menuitem:disabled {{ color:{p['muted']}; }}
+separator {{ background-color:{p['border']}; min-height:1px; margin:{r(4)} {r(8)}; }}
+.popup {{ background-color:transparent; }}
 .mi {{ border-radius:{r(10)}; }}
 .mi:hover {{ background-color:{p['pill']}; }}
 .hov:hover {{ background-color:{p['row']}; }}
@@ -274,6 +320,16 @@ def set_rgba_visual(win):
     scr = win.get_screen(); vis = scr.get_rgba_visual()
     if vis: win.set_visual(vis)
     win.set_app_paintable(True)
+
+def new_menu():
+    """Gtk.Menu with a transparent (RGBA) popup window so rounded corners don't show black corners."""
+    m = Gtk.Menu()
+    try:
+        tl = m.get_toplevel(); vis = tl.get_screen().get_rgba_visual()
+        if vis: tl.set_visual(vis)
+        tl.set_app_paintable(True)
+    except Exception as e: print('menu', e, file=sys.stderr)
+    return m
 
 def gradient_tile(cr, w, h, r, stops, angle=135, shadow=True):
     """Dock-icon tile: rounded gradient + soft top highlight."""
@@ -494,6 +550,18 @@ def watch_mode(cb):
         if nm != State.mode: State.mode = nm; apply_css(nm); restyle_labels(); cb(nm)
     m.connect('changed', ch)
 
+
+def watch_conf(name, cb):
+    """Call cb() whenever ~/.config/osborne/<name> changes (written by another process)."""
+    os.makedirs(CONF, exist_ok=True)
+    m = Gio.File.new_for_path(CONF).monitor_directory(Gio.FileMonitorFlags.NONE, None); _mon.append(m)
+    pend = [False]
+    def fire():
+        pend[0] = False; cb(); return False
+    def ch(mon, f, other, ev):
+        if f.get_basename() == name and ev in (Gio.FileMonitorEvent.CHANGES_DONE_HINT, Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.CHANGED) and not pend[0]:
+            pend[0] = True; GLib.timeout_add(300, fire)
+    m.connect('changed', ch)
 
 class PulseBar(Gtk.DrawingArea):
     """Progress bar that always moves (so it never looks frozen). fraction=None -> indeterminate."""

@@ -8,8 +8,21 @@ PAL = {
                row='#262930', track='#383c45', field='#262930', menu='#22252c', shadow='rgba(0,0,0,0.5)', base='#1c2029'),
 }
 
+def _accent():
+    try:
+        v = open(os.path.join(HOME, '.config/osborne/accent')).read().strip()
+        if len(v) == 7 and v.startswith('#'): int(v[1:], 16); return v
+    except Exception: pass
+    return '#0a7cff'
+def _mix(a, b, t):
+    A = [int(a[i:i+2], 16) for i in (1, 3, 5)]; B = [int(b[i:i+2], 16) for i in (1, 3, 5)]
+    return '#%02x%02x%02x' % tuple(int(round(A[i] * (1 - t) + B[i] * t)) for i in range(3))
+def _pal(m):
+    p = dict(PAL[m]); a = _accent(); p['primary'] = a; p['top'] = _mix(a, '#ffffff', 0.16)
+    p['pill'] = _mix(a, '#ffffff', 0.9) if m == 'light' else _mix(a, '#1c2029', 0.78); return p
+
 def gtk_css(m):
-    p = PAL[m]
+    p = _pal(m)
     return f"""
 @define-color theme_bg_color {p['win']}; @define-color theme_fg_color {p['text']};
 @define-color theme_base_color {p['base']}; @define-color theme_text_color {p['text']};
@@ -24,7 +37,7 @@ button {{ background-image: none; background-color: {p['row']}; color: {p['text'
 button:hover {{ background-color: {p['pill']}; }}
 button:active, button:checked {{ background-color: {p['pill']}; color: {p['primary']}; border-color: {p['primary']}; }}
 button:disabled {{ color: {p['muted']}; opacity: 0.6; }}
-button.suggested-action, button.default {{ background-image: linear-gradient(180deg, #2b90ff, #0a7cff); color: #ffffff; border: none; font-weight: 600; }}
+button.suggested-action, button.default {{ background-image: linear-gradient(180deg, {p['top']}, {p['primary']}); color: #ffffff; border: none; font-weight: 600; }}
 button.destructive-action {{ background-image: linear-gradient(180deg, #ff6b61, #f2453d); color: #ffffff; border: none; }}
 button.flat, headerbar button, toolbar button {{ background-color: transparent; border-color: transparent; }}
 headerbar button:hover, toolbar button:hover {{ background-color: {p['row']}; }}
@@ -71,7 +84,7 @@ calendar:selected {{ background-color: {p['primary']}; color: #fff; border-radiu
 .osb-key {{ background-color: {p['row']}; border-radius: 16px; border: none; font-size: 17px; font-weight: 500; }}
 .osb-key:hover {{ background-color: {p['pill']}; }}
 .osb-op {{ background-color: {p['pill']}; color: {p['primary']}; }}
-.osb-eq {{ background-image: linear-gradient(180deg, #2b90ff, #0a7cff); color: #fff; }}
+.osb-eq {{ background-image: linear-gradient(180deg, {p['top']}, {p['primary']}); color: #fff; }}
 """
 
 def _xbm(name, rows):
@@ -87,7 +100,7 @@ ICON = {
 }
 
 def openbox_theme(m):
-    p = PAL[m]; d = os.path.join(HOME, '.themes', 'Osborne-' + m, 'openbox-3'); os.makedirs(d, exist_ok=True)
+    p = _pal(m); d = os.path.join(HOME, '.themes', 'Osborne-' + m, 'openbox-3'); os.makedirs(d, exist_ok=True)
     for n, rows in ICON.items():
         for suf in ('', '_hover', '_pressed', '_disabled'):
             if n == 'max_toggled' and suf: continue
@@ -188,7 +201,7 @@ def lxterminal(m):
     open(os.path.join(d, 'lxterminal.conf'), 'w').write(conf + "\n[shortcut]\n")
 
 def dunst(m):
-    p = PAL[m]; d = os.path.join(HOME, '.config/dunst'); os.makedirs(d, exist_ok=True)
+    p = _pal(m); d = os.path.join(HOME, '.config/dunst'); os.makedirs(d, exist_ok=True)
     open(os.path.join(d, 'dunstrc'), 'w').write(f"""[global]
 monitor = 0
 follow = mouse

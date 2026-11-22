@@ -38,44 +38,53 @@ class Wallpaper(Gtk.Window):
     def refresh(self): self.da.queue_draw()
     def _click(self, w, e):
         if e.button != 3: return False
-        m = Gtk.Menu()
+        m = new_menu()
         for label, cmd in (('Change wallpaper', 'osb-settings appearance'), ('Display settings', 'osb-settings display'), ('Open Files', 'osb-files'), ('Open Terminal', 'lxterminal'), ('Settings', 'osb-settings')):
             it = Gtk.MenuItem(label=label); it.connect('activate', lambda i, c=cmd: launch(c)); m.append(it)
         m.show_all(); m.popup_at_pointer(e); return True
 
 # ---------------------------------------------------------------- top bar
 APPNAMES = {'osb-files': 'Files', 'Osb-files': 'Files', 'firefox': 'Firefox', 'Firefox': 'Firefox', 'google-chrome': 'Chrome', 'Google-chrome': 'Chrome', 'lxterminal': 'Terminal',
-            'Lxterminal': 'Terminal', 'mousepad': 'Text Editor', 'Mousepad': 'Text Editor', 'pavucontrol': 'Sound', 'Pavucontrol': 'Sound', 'Osb-settings': 'Settings', 'Osb-calc': 'Calculator', 'Osb-wifi': 'Wi-Fi', 'Osb-monitor': 'System Monitor', 'Osb-power': 'Power'}
+            'Lxterminal': 'Terminal', 'mousepad': 'Text Editor', 'Mousepad': 'Text Editor', 'pavucontrol': 'Sound', 'Pavucontrol': 'Sound', 'Osb-settings': 'Settings', 'Osb-calc': 'Calculator', 'Osb-wifi': 'Wi-Fi', 'Osb-monitor': 'System Monitor', 'Osb-power': 'Power', 'Osb-store': 'Software'}
 class TopBar(OsbWindow):
     def __init__(self, app):
         sw = Gdk.Screen.get_default().get_width()
         super().__init__(sw, px(40), 0, Gdk.WindowTypeHint.DOCK, 'osb-topbar'); self.app = app; self.sw = sw
         self.move(0, 0)
-        self.put(Emblem(px(26), 'bar'), px(16), px(7))
-        act = make_label('Activities', 13, 'semibold', 'text', w=px(80), h=px(20)); self.put(act, px(54), px(10))
-        self.appl = make_label('Files', 13, 'medium', 'muted', w=px(140), h=px(20)); self.put(self.appl, px(127), px(10))
+        cfg = self.cfg = load_bar()
+        self.put(Emblem(px(26), 'bar'), px(16), px(7)); lx = 54
+        if cfg['activities']:
+            act = make_label('Activities', 13, 'semibold', 'text', w=px(80), h=px(20)); self.put(act, px(lx), px(10)); lx = 127
+            aev = Gtk.EventBox(); aev.set_visible_window(False); aev.set_size_request(px(80), px(40)); aev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            aev.connect('button-press-event', lambda *a: launch('osb-switcher overview')); self.put(aev, px(54), 0)
+        self.appl = make_label('Files', 13, 'medium', 'muted', w=px(140), h=px(20))
+        if cfg['appname']: self.put(self.appl, px(lx), px(10))
         self.wifi = Icon('wifi', px(17), 'text', 1.6); self.vol = Icon('volume', px(17), 'text', 1.6); self.bat = Icon('battery', px(17), 'text', 1.6)
         self.clock = make_label('00:00', 13, 'medium', 'text', xalign=0.0, w=px(62), h=px(20))
-        self.chev = Icon('chev-d', px(14), 'text', 1.8)
-        x = sw - px(262)
+        self.chev = Icon('chev-d', px(14), 'text', 1.8); self.lay = make_label('EN', 11.5, 'semibold', 'text', xalign=0.5, w=px(30), h=px(20))
+        self.bell = Icon('bell', px(17), 'text', 1.6)
         self.pw = Icon('power', px(17), 'text', 1.7); self.put(self.pw, sw - px(36), px(11))
         pev = Gtk.EventBox(); pev.set_visible_window(False); pev.set_size_request(px(32), px(40)); pev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         pev.connect('button-press-event', lambda *a: (launch('osb-power'), True)[-1]); self.put(pev, sw - px(42), 0)
-        self.lay = make_label('EN', 11.5, 'semibold', 'text', xalign=0.5, w=px(30), h=px(20)); self.put(self.lay, x, px(10))
-        lev = Gtk.EventBox(); lev.set_visible_window(False); lev.set_size_request(px(34), px(40)); lev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        lev.connect('button-press-event', lambda *a: (self.toggle_layout(), True)[-1]); self.put(lev, x - px(2), 0)
-        self.bell = Icon('bell', px(17), 'text', 1.6); self.put(self.bell, x + px(38), px(11))
-        bev = Gtk.EventBox(); bev.set_visible_window(False); bev.set_size_request(px(30), px(40)); bev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        bev.connect('button-press-event', lambda *a: (launch('osb-notifs'), True)[-1]); self.put(bev, x + px(33), 0)
-        x += px(68)
-        self.put(self.wifi, x, px(11)); self.put(self.vol, x + px(28), px(11)); self.put(self.bat, x + px(54), px(11))
-        self.put(self.clock, x + px(75), px(10)); self.put(self.chev, x + px(133), px(13))
-        # click area over the tray -> quick settings
-        ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(160), px(40)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        ev.connect('button-press-event', lambda *a: app.toggle_qs()); self.put(ev, x - px(10), 0)
-        aev = Gtk.EventBox(); aev.set_visible_window(False); aev.set_size_request(px(80), px(40)); aev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        aev.connect('button-press-event', lambda *a: launch('osb-switcher overview')); self.put(aev, px(54), 0)
-        self.connect('realize', self._strut); self.poll_layout(); GLib.timeout_add(600, self.poll_layout); self.tick(); GLib.timeout_add_seconds(15, self.tick); GLib.timeout_add(1500, self.poll_active)
+        # right side: laid out from the power button towards the left, only the items the user kept
+        cur = sw - px(56); self.put(self.chev, cur - px(14), px(13)); cur -= px(14)
+        right_edge = cur + px(14)
+        tray = []
+        if cfg['clock']: cur -= px(70); self.put(self.clock, cur, px(10)); tray.append(cur)
+        for key, w_, off in (('bat', 17, 9), ('vol', 17, 9), ('wifi', 17, 9)):
+            if cfg[key]: cur -= px(w_ + off); self.put(getattr(self, key), cur, px(11)); tray.append(cur)
+        tray_left = cur
+        ev = Gtk.EventBox(); ev.set_visible_window(False); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        ev.set_size_request(max(px(40), right_edge - tray_left + px(20)), px(40)); ev.connect('button-press-event', lambda *a: app.toggle_qs()); self.put(ev, tray_left - px(10), 0)
+        if cfg['bell']:
+            cur -= px(17 + 16); self.put(self.bell, cur, px(11))
+            bev = Gtk.EventBox(); bev.set_visible_window(False); bev.set_size_request(px(32), px(40)); bev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            bev.connect('button-press-event', lambda *a: (launch('osb-notifs'), True)[-1]); self.put(bev, cur - px(7), 0)
+        if cfg['lang']:
+            cur -= px(30 + 8); self.put(self.lay, cur, px(10))
+            lev = Gtk.EventBox(); lev.set_visible_window(False); lev.set_size_request(px(34), px(40)); lev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            lev.connect('button-press-event', lambda *a: (self.toggle_layout(), True)[-1]); self.put(lev, cur - px(2), 0)
+        self.connect('realize', self._strut); self.poll_layout(); GLib.timeout_add(800, self.poll_layout); self.tick(); GLib.timeout_add_seconds(15, self.tick); GLib.timeout_add(2500, self.poll_active)
     def _strut(self, *_):
         try:
             xid = self.get_window().get_xid(); h = px(40)
@@ -89,7 +98,7 @@ class TopBar(OsbWindow):
             st = self._XkbState(); self._x11.XkbGetState(ctypes.c_void_p(self._dpy), 0x0100, ctypes.byref(st))
             n = max(1, len(self._layouts or ['us']))
             if n < 2:
-                subprocess.run(['setxkbmap', '-layout', 'us,ar', '-option', 'grp:alt_shift_toggle'], timeout=5); self._layouts = None; n = 2
+                subprocess.run(['setxkbmap', '-layout', 'us,ara', '-option', 'grp:alt_shift_toggle'], timeout=5); self._layouts = None; n = 2
             self._x11.XkbLockGroup(ctypes.c_void_p(self._dpy), 0x0100, (st.group + 1) % n); self._x11.XFlush(ctypes.c_void_p(self._dpy))
             self.poll_layout()
         except Exception as e: print('layout', e, file=sys.stderr)
@@ -99,10 +108,14 @@ class TopBar(OsbWindow):
                 import ctypes; self._x11 = ctypes.CDLL('libX11.so.6'); self._x11.XOpenDisplay.restype = ctypes.c_void_p; self._dpy = self._x11.XOpenDisplay(None)
                 class XkbState(ctypes.Structure): _fields_ = [('group', ctypes.c_ubyte), ('locked_group', ctypes.c_ubyte), ('base_group', ctypes.c_ushort), ('latched_group', ctypes.c_ushort), ('mods', ctypes.c_ubyte), ('base_mods', ctypes.c_ubyte), ('latched_mods', ctypes.c_ubyte), ('locked_mods', ctypes.c_ubyte), ('compat_state', ctypes.c_ubyte), ('grab_mods', ctypes.c_ubyte), ('compat_grab_mods', ctypes.c_ubyte), ('lookup_mods', ctypes.c_ubyte), ('compat_lookup_mods', ctypes.c_ubyte), ('ptr_buttons', ctypes.c_ushort)]
                 self._XkbState = XkbState; self._layouts = None
-            if self._layouts is None or int(time.time()) % 20 == 0:
-                q = sh_out('setxkbmap -query'); m = re.search(r'layout:\s+(\S+)', q); self._layouts = (m.group(1) if m else 'us').split(',')
+            self._lp = getattr(self, '_lp', 0) + 1
+            if self._layouts is None: self._layouts = ['us']
+            if self._lp % 40 == 1:  # refresh the layout list in the background, never block the UI
+                def got(q):
+                    m = re.search(r'layout:\s+(\S+)', q or ''); self._layouts = (m.group(1) if m else 'us').split(',')
+                run_bg(['sh', '-c', 'setxkbmap -query'], got, 3)
             st = self._XkbState(); self._x11.XkbGetState(ctypes.c_void_p(self._dpy), 0x0100, ctypes.byref(st))
-            code = self._layouts[min(st.group, len(self._layouts) - 1)]; self.lay.set_text({'us': 'EN', 'ar': 'AR', 'gb': 'EN', 'fr': 'FR', 'de': 'DE'}.get(code, code[:2].upper()))
+            code = self._layouts[min(st.group, len(self._layouts) - 1)]; self.lay.set_text({'us': 'EN', 'ara': 'AR', 'ar': 'AR', 'gb': 'EN', 'fr': 'FR', 'de': 'DE'}.get(code, code[:2].upper()))
         except Exception as e: pass
         return True
     def tick(self):
@@ -119,33 +132,59 @@ def focus_or_launch(cls, cmd):
     if ids.strip(): subprocess.Popen(['xdotool', 'windowactivate', ids.strip()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else: launch(cmd)
 
+DOCK_SIZES = {'small': 0.84, 'medium': 1.0, 'large': 1.22}
+# id -> (icon, gradient stops, action, window class for the running dot, label)
+BUILTIN = {
+    'apps': ('grid', [(0, '#ffc43d'), (1, '#ff9d12')], lambda: launch('osb-apps'), None, 'Apps'),
+    'files': ('folder', [(0, '#55abff'), (1, '#0a7cff')], lambda: focus_or_launch('osb-files', 'osb-files'), 'osb-files', 'Files'),
+    'browser': ('globe', None, lambda: focus_or_launch('google-chrome', 'google-chrome-stable'), 'google-chrome', 'Browser'),
+    'terminal': ('terminal', [(0, '#33343c'), (1, '#16171c')], lambda: focus_or_launch('lxterminal', 'lxterminal'), 'lxterminal', 'Terminal'),
+    'calculator': ('calculator', [(0, '#ff8f84'), (1, '#f2616c')], lambda: focus_or_launch('osb-calc', 'osb-calc'), 'osb-calc', 'Calculator'),
+    'settings': ('gear', [(0, '#a7acb8'), (1, '#7a7f8c')], lambda: focus_or_launch('osb-settings', 'osb-settings'), 'osb-settings', 'Settings'),
+    'store': ('download', [(0, '#5ad2a0'), (1, '#1ea672')], lambda: focus_or_launch('osb-store', 'osb-store'), 'osb-store', 'Software'),
+    'monitor': ('monitor', [(0, '#9b86ff'), (1, '#6a4de0')], lambda: focus_or_launch('osb-monitor', 'osb-monitor'), 'osb-monitor', 'System Monitor'),
+    'wifi': ('wifi', [(0, '#4cc9f0'), (1, '#1d90d8')], lambda: launch('osb-wifi'), None, 'Wi-Fi'),
+    'notes': ('file', [(0, '#ffd166'), (1, '#f0a020')], lambda: launch('mousepad'), None, 'Text Editor'),
+}
+def app_info(item):
+    """item like 'app:firefox.desktop' -> Gio.DesktopAppInfo or None"""
+    try: return Gio.DesktopAppInfo.new(item.split(':', 1)[1])
+    except Exception: return None
+def item_label(item):
+    if item in BUILTIN: return BUILTIN[item][4]
+    ai = app_info(item); return ai.get_name() if ai else item
+
 class Dock(OsbWindow):
     def __init__(self, app):
         sw, sh = Gdk.Screen.get_default().get_width(), Gdk.Screen.get_default().get_height()
-        cw, ch = px(376), px(60); m = px(40)
-        super().__init__(cw, ch, m, Gdk.WindowTypeHint.DOCK, 'osb-dock'); self.app = app
+        cfg = self.cfg = load_dock(); k = DOCK_SIZES.get(cfg['size'], 1.0)
+        items = [i for i in cfg['items'] if i in BUILTIN or (i.startswith('app:') and app_info(i))] or list(DOCK_DEFAULT['items'])
+        T = int(round(42 * k)); G = int(round(8 * k)); n = len(items); pad = 11
+        self.T = T; right = (px(13 + G + 42 * k) if cfg['trash'] else 0)
+        cw = px(pad * 2 + n * (T + G) - G) + (px(8 + 1 + 8) + px(42 * k) if cfg['trash'] else 0); ch = px(18 + T)
+        m = px(40); super().__init__(cw, ch, m, Gdk.WindowTypeHint.DOCK, 'osb-dock'); self.app = app
         self.move(int((sw - cw) / 2) - m, sh - px(9) - ch - m)
         self.shadow = (22, 8, 26); self.put(Box('dock', cw, ch), 0, 0)
-        specs = [('grid', [(0, '#ffc43d'), (1, '#ff9d12')], lambda: launch('osb-apps'), None),
-                 ('folder', [(0, '#55abff'), (1, '#0a7cff')], lambda: focus_or_launch('osb-files', 'osb-files'), 'osb-files'),
-                 ('globe', None, lambda: focus_or_launch('google-chrome', 'google-chrome-stable'), 'google-chrome'),
-                 ('terminal', [(0, '#33343c'), (1, '#16171c')], lambda: focus_or_launch('lxterminal', 'lxterminal'), 'lxterminal'),
-                 ('calculator', [(0, '#ff8f84'), (1, '#f2616c')], lambda: focus_or_launch('osb-calc', 'osb-calc'), 'osb-calc'),
-                 ('gear', [(0, '#a7acb8'), (1, '#7a7f8c')], lambda: focus_or_launch('osb-settings', 'osb-settings'), 'osb-settings')]
         self.dots = {}
-        for i, (ic, stops, fn, cls) in enumerate(specs):
-            self.put(self.tile(ic, stops, fn), px(11) + i * px(50), px(9))
-            if cls:
-                dot = Gtk.DrawingArea(); dot.set_size_request(px(5), px(5)); dot.on = False
-                dot.connect('draw', lambda w, cr: ((cr.arc(px(2.5), px(2.5), px(2.2), 0, 6.3), cr.set_source_rgba(*hex2rgb(pal('bar'))), cr.fill()) if w.on else None, False)[-1])
-                self.put(dot, px(11) + i * px(50) + px(21) - px(2), px(54)); self.dots[cls] = dot
-        sep = Box('rowline', max(1, px(1)), px(34)); self.put(sep, px(313), px(13))
-        t = Gtk.DrawingArea(); t.set_size_request(px(42), px(42)); t.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        def dt(w, cr):
-            rounded_rect(cr, 0, 0, px(42), px(42), px(14)); cr.set_source_rgba(*hex2rgb(pal('trash'))); cr.fill()
-            draw_icon(cr, 'trash', px(9), px(9), px(24), pal('trashicon'), 1.7); return False
-        t.connect('draw', dt); t.connect('button-press-event', lambda *a: launch('osb-files --trash')); self.put(t, px(324), px(9))
-        GLib.timeout_add(2000, self.poll); self.poll()
+        for i, it in enumerate(items):
+            x = px(pad) + i * px(T + G)
+            if it in BUILTIN:
+                ic, stops, fn, cls, _lab = BUILTIN[it]; self.put(self.tile(ic, stops, fn, T), x, px(9))
+                if cls:
+                    dot = Gtk.DrawingArea(); dot.set_size_request(px(5), px(5)); dot.on = False
+                    dot.connect('draw', lambda w, cr: ((cr.arc(px(2.5), px(2.5), px(2.2), 0, 6.3), cr.set_source_rgba(*hex2rgb(pal('bar'))), cr.fill()) if w.on else None, False)[-1])
+                    self.put(dot, x + px(T / 2.0) - px(2), px(9 + T + 3)); self.dots[cls] = dot
+            else:
+                self.put(self.app_tile(app_info(it), T), x, px(9))
+        if cfg['trash']:
+            sx = px(pad) + n * px(T + G) - px(G) + px(8)
+            self.put(Box('rowline', max(1, px(1)), px(T * 0.8)), sx, px(9 + T * 0.1))
+            t = Gtk.DrawingArea(); t.set_size_request(px(T), px(T)); t.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            def dt(w, cr, T=T):
+                rounded_rect(cr, 0, 0, px(T), px(T), px(14)); cr.set_source_rgba(*hex2rgb(pal('trash'))); cr.fill()
+                draw_icon(cr, 'trash', px(T * 0.21), px(T * 0.21), px(T * 0.57), pal('trashicon'), 1.7); return False
+            t.connect('draw', dt); t.connect('button-press-event', lambda *a: launch('osb-files --trash')); self.put(t, sx + px(9), px(9))
+        GLib.timeout_add(5000, self.poll); self.poll()
     def poll(self):
         def work():
             res = {cls: bool(sh_out("xdotool search --class %s 2>/dev/null | head -1" % cls)) for cls in self.dots}
@@ -156,13 +195,27 @@ class Dock(OsbWindow):
             d = self.dots[cls]
             if d.on != on: d.on = on; d.queue_draw()
         return False
-    def tile(self, ic, stops, fn):
-        d = Gtk.DrawingArea(); sz = px(42); d.set_size_request(sz, sz); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+    def tile(self, ic, stops, fn, T=42):
+        d = Gtk.DrawingArea(); sz = px(T); d.set_size_request(sz, sz); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         def draw(w, cr):
             if ic == 'globe': rainbow_tile(cr, sz, sz, px(14))
             else: gradient_tile(cr, sz, sz, px(14), stops, 160)
-            draw_icon(cr, 'grid' if ic == 'grid' else ic, px(9), px(9), px(24), '#ffffff', 1.7); return False
+            draw_icon(cr, ic, sz * 0.21, sz * 0.21, sz * 0.57, '#ffffff', 1.7); return False
         d.connect('draw', draw); d.connect('button-press-event', lambda *a: fn()); return d
+    def app_tile(self, ai, T=42):
+        d = Gtk.DrawingArea(); sz = px(T); d.set_size_request(sz, sz); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        pb = [None]
+        def load():
+            try:
+                ic = ai.get_icon(); info = Gtk.IconTheme.get_default().lookup_by_gicon(ic, int(sz * 0.7), Gtk.IconLookupFlags.FORCE_SIZE) if ic else None
+                pb[0] = info.load_icon() if info else None
+            except Exception: pb[0] = None
+        load()
+        def draw(w, cr):
+            rounded_rect(cr, 0, 0, sz, sz, px(14)); cr.set_source_rgba(*hex2rgb(pal('trash'))); cr.fill()
+            if pb[0]: Gdk.cairo_set_source_pixbuf(cr, pb[0], (sz - pb[0].get_width()) / 2.0, (sz - pb[0].get_height()) / 2.0); cr.paint()
+            return False
+        d.connect('draw', draw); d.connect('button-press-event', lambda *a: ai.launch([], None)); return d
 
 # ---------------------------------------------------------------- quick settings
 class QuickSettings(OsbWindow):
@@ -278,6 +331,19 @@ class ShellApp:
         self.wall = Wallpaper(); self.bar = TopBar(self); self.dock = Dock(self); self.qs = QuickSettings(self)
         for w in (self.wall, self.bar, self.dock): w.show_all()
         self.wall.show_all(); self.refresh_status()
+        watch_mode(self._mode_from_file)
+        watch_conf('dock.json', self.rebuild_dock); watch_conf('topbar.json', self.rebuild_bar); watch_conf('accent', self.accent_changed)
+    def rebuild_dock(self):
+        old = self.dock; self.dock = Dock(self); self.dock.show_all(); old.destroy()
+    def rebuild_bar(self):
+        old = self.bar; self.bar = TopBar(self); self.bar.show_all(); old.destroy(); self.refresh_status()
+    def accent_changed(self):
+        apply_accent(); apply_css(State.mode); restyle_labels(); launch(['osb-apply-theme', State.mode])
+        for w in (self.wall, self.bar, self.dock, self.qs): w.queue_draw()
+    def _mode_from_file(self, mode):
+        # theme was changed by another process (e.g. Settings) -> repaint the whole shell exactly like the clock toggle
+        for w in (self.wall, self.bar, self.dock, self.qs): w.queue_draw()
+        self.wall.refresh(); self.qs.set_appearance_ui(mode)
     # -- system state
     def read_brightness(self):
         out = sh_out('osb-brightness get 2>/dev/null')
@@ -322,7 +388,7 @@ class ShellApp:
     def show_calendar(self):
         win = Gtk.Window(title='Calendar'); win.set_default_size(300, 300); cal = Gtk.Calendar(); win.add(cal); win.show_all()
     def show_settings_menu(self):
-        m = Gtk.Menu(); self.menu_open = True
+        m = new_menu(); self.menu_open = True
         for label, cmd in (('Network', 'nm-connection-editor'), ('Wi-Fi networks', 'osb-wifi'), ('Bluetooth', 'blueman-manager'),
                            ('Sound', 'pavucontrol'), ('Appearance', 'lxappearance'), ('Terminal', 'lxterminal')):
             it = Gtk.MenuItem(label=label); it.connect('activate', lambda w, c=cmd: launch(c)); m.append(it)

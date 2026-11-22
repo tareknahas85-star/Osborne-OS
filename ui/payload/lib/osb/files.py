@@ -309,7 +309,7 @@ class FilesWindow(OsbWindow):
             ev.connect('button-press-event', lambda w, e, p=p, d=isdir: (self.row_click(e, p, d), True)[-1]); P.put(ev, px(x0), px(y))
     clip = None
     def menu(self, items, e):
-        m = Gtk.Menu()
+        m = new_menu()
         for it in items:
             if it is None: m.append(Gtk.SeparatorMenuItem()); continue
             lab, fn = it; mi = Gtk.MenuItem(label=lab); mi.set_sensitive(fn is not None)
@@ -502,7 +502,7 @@ def already_running():
 def main():
     if already_running(): return
     init_mode()
-    c = Gtk.CssProvider(); c.load_from_data(b'.osbsearch{border-radius:15px;padding:2px 12px;font-size:12px;} .ulblue{background-color:#0a7cff;border-radius:1px;} .osbscroll,.osbscroll viewport{background:transparent;} .osbscroll undershoot,.osbscroll overshoot{background:none;}')
+    c = Gtk.CssProvider(); c.load_from_data(b'.osbsearch{border-radius:15px;padding:2px 12px;font-size:12px;} .ulblue{background-color:%s;border-radius:1px;} .osbscroll,.osbscroll viewport{background:transparent;} .osbscroll undershoot,.osbscroll overshoot{background:none;}' % ACC['base'].encode())
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), c, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
     w = FilesWindow(); w.connect('destroy', Gtk.main_quit); w.show_all()
     if '--trash' in sys.argv: w.nav('trash', 'Trash')

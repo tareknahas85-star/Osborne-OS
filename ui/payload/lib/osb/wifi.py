@@ -69,4 +69,4 @@ class WifiWin(OsbWindow):
 def main():
     init_mode(); c = Gtk.CssProvider(); c.load_from_data(b'.osbscroll,.osbscroll viewport{background:transparent;}')
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), c, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
-    w = WifiWin(); w.show_all(); w.pw.hide(); w.btn.hide(); Gtk.main()
+    w = WifiWin(); w.show_all(); w.pw.hide(); w.btn.hide(); watch_mode(lambda m: w.queue_draw()); Gtk.main()

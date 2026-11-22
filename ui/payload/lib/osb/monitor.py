@@ -97,4 +97,4 @@ def main():
         subprocess.run(['xdotool', 'windowactivate', ids[-1]]); return
     init_mode(); c = Gtk.CssProvider(); c.load_from_data(b'.osbscroll,.osbscroll viewport{background:transparent;}')
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), c, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
-    w = Monitor(); w.connect('destroy', Gtk.main_quit); w.show_all(); Gtk.main()
+    w = Monitor(); w.connect('destroy', Gtk.main_quit); w.show_all(); watch_mode(lambda m: w.queue_draw()); Gtk.main()

@@ -19,11 +19,10 @@ apt-get install -y -qq --no-install-recommends \
 echo "[2/6] Installing shell + apps..."
 install -d /usr/local/lib/osborne
 rm -rf /usr/local/lib/osborne/osb; cp -r "$P/lib/osb" /usr/local/lib/osborne/osb
-for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome; do
+for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store; do
   sed 's#^sys.path.insert.*#sys.path.insert(0, "/usr/local/lib/osborne")#' "$P/bin/$b" > /usr/local/bin/$b; chmod 755 /usr/local/bin/$b; done
 install -m 755 "$P/bin/osb-launcher" /usr/local/bin/
 install -m 755 "$P/bin/osb-shot" /usr/local/bin/
-install -m 755 "$P/bin/osb-store" /usr/local/bin/
 printf "QT_QPA_PLATFORMTHEME=gtk3\nGTK_THEME=\n" >/dev/null
 grep -q QT_QPA_PLATFORMTHEME /etc/environment 2>/dev/null || echo "QT_QPA_PLATFORMTHEME=gtk2" >> /etc/environment
 install -m 755 "$P/bin/osb-compositor" /usr/local/bin/
@@ -32,7 +31,7 @@ cat > /etc/X11/xorg.conf.d/00-osborne-keyboard.conf <<'XK'
 Section "InputClass"
     Identifier "osborne keyboard"
     MatchIsKeyboard "on"
-    Option "XkbLayout" "us,ar"
+    Option "XkbLayout" "us,ara"
     Option "XkbOptions" "grp:alt_shift_toggle"
 EndSection
 XK
@@ -90,7 +89,8 @@ xss-lock -- osb-lock &
 (sleep 0.6; osb-shell) &
 (sleep 2.2; osb-files) &
 AS
-  [ -f "$H/.config/osborne/keyboard.sh" ] || { printf '#!/bin/sh\nsetxkbmap -layout us,ar -option grp:alt_shift_toggle\n' > "$H/.config/osborne/keyboard.sh"; chmod +x "$H/.config/osborne/keyboard.sh"; }
+  [ -f "$H/.config/osborne/keyboard.sh" ] || { printf '#!/bin/sh\nsetxkbmap -layout us,ara -option grp:alt_shift_toggle\n' > "$H/.config/osborne/keyboard.sh"; chmod +x "$H/.config/osborne/keyboard.sh"; }
+  sed -i -E 's/(-layout [a-z,]*[,])ar( |$)/\1ara\2/; s/-layout ar /-layout ara /' "$H/.config/osborne/keyboard.sh" 2>/dev/null || true
   # shortcuts: Super+Space = apps, volume / brightness keys
   RC="$H/.config/openbox/rc.xml"
   if [ -f "$RC" ]; then
@@ -161,6 +161,10 @@ if ! dpkg -s proton-vpn-gtk-app >/dev/null 2>&1; then
   else echo "  (could not download Proton VPN)"; fi
   rm -rf "$PV"
 fi
-printf '[Desktop Entry]\nType=Application\nName=Software\nComment=Install apps from the Snap Store\nExec=osb-store\nIcon=system-software-install\nCategories=System;\n' > /usr/share/applications/osb-store.desktop
+printf '[Desktop Entry]\nType=Application\nName=Software\nComment=Install apps from Flathub and the Snap Store\nExec=osb-store\nIcon=system-software-install\nCategories=System;\n' > /usr/share/applications/osb-store.desktop
 grep -q snapd/desktop /etc/environment 2>/dev/null || echo 'XDG_DATA_DIRS=/usr/local/share:/usr/share:/var/lib/snapd/desktop:/var/lib/flatpak/exports/share' >> /etc/environment
+# boot resilience: repair the file system automatically after a hard power-off
+if [ -f /boot/grub/grub.cfg ] && grep -q 'root=LABEL=osb-root' /boot/grub/grub.cfg && ! grep -q 'fsck.repair=yes' /boot/grub/grub.cfg; then
+  sed -i 's#root=LABEL=osb-root ro#root=LABEL=osb-root ro fsck.mode=auto fsck.repair=yes#' /boot/grub/grub.cfg || true
+fi
 echo "Done. Log out and back in (or reboot) to load the new desktop."

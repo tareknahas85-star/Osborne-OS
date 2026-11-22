@@ -2,7 +2,7 @@
 import os, sys, subprocess
 from .common import *
 
-HIDE = {'tint2', 'tint2 settings', 'advanced network configuration', 'customize look and feel', 'desktop preferences', 'file roller', 'mousepad', 'text editor settings', 'text editor', 'file manager pcmanfm', 'file manager', 'pulseaudio volume control', 'bluetooth manager', 'bluetooth adapters', 'wi-fi', 'firefox web browser', 'firefox', 'avahi ssh server browser', 'avahi vnc server browser', 'picom', 'openbox configuration manager', 'vim', 'rofi', 'rofi theme selector', 'avahi zeroconf browser', 'bulk rename', 'lxappearance customize look and feel', 'uxterm', 'xterm'}
+HIDE = {'app center', 'snap store', 'tint2', 'tint2 settings', 'advanced network configuration', 'customize look and feel', 'desktop preferences', 'file roller', 'mousepad', 'text editor settings', 'text editor', 'file manager pcmanfm', 'file manager', 'pulseaudio volume control', 'bluetooth manager', 'bluetooth adapters', 'wi-fi', 'firefox web browser', 'firefox', 'avahi ssh server browser', 'avahi vnc server browser', 'picom', 'openbox configuration manager', 'vim', 'rofi', 'rofi theme selector', 'avahi zeroconf browser', 'bulk rename', 'lxappearance customize look and feel', 'uxterm', 'xterm'}
 
 class AppDrawer(OsbWindow):
     def __init__(self):
@@ -53,6 +53,6 @@ def main():
         for p in others: subprocess.run(['kill', p])
         return
     init_mode(); c = Gtk.CssProvider()
-    c.load_from_data(b'.osbscroll,.osbscroll viewport{background:transparent;} .osbentry{background:transparent;border:none;box-shadow:none;font-size:15px;} flowboxchild.appitem{border-radius:16px;padding:4px;} flowboxchild.appitem:hover{background-color:alpha(#0a7cff,0.12);} flowboxchild:focus{outline:none;}')
+    c.load_from_data(b'.osbscroll,.osbscroll viewport{background:transparent;} .osbentry{background:transparent;border:none;box-shadow:none;font-size:15px;} flowboxchild.appitem{border-radius:16px;padding:4px;} flowboxchild.appitem:hover{background-color:alpha(%s,0.12);} flowboxchild:focus{outline:none;}' % ACC['base'].encode())
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), c, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
     w = AppDrawer(); w.connect('destroy', Gtk.main_quit); w.show_all(); w.entry.grab_focus(); Gtk.main()
