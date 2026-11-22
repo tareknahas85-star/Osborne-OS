@@ -317,7 +317,7 @@ class SettingsWin(OsbWindow):
     def p_about(self):
         mem = re.search(r'MemTotal:\s+(\d+)', open('/proc/meminfo').read()); cpu = (re.search(r'model name\s*:\s*(.+)', open('/proc/cpuinfo').read()) or [0, 'Unknown'])[1]
         os_name = (re.search(r'PRETTY_NAME="?([^"\n]+)', open('/etc/os-release').read()) or [0, 'Linux'])[1]
-        for t, v in (('Device name', socket.gethostname()), ('Operating system', 'Osborne OS  ·  ' + os_name), ('Kernel', platform.release()), ('Processor', cpu.strip()),
+        for t, v in (('Device name', socket.gethostname()), ('Osborne OS version', 'v' + __import__('osb.version', fromlist=['VERSION']).VERSION), ('Operating system', 'Osborne OS  ·  ' + os_name), ('Kernel', platform.release()), ('Processor', cpu.strip()),
                      ('Memory', '%.1f GB' % (int(mem.group(1)) / 1048576.0) if mem else '—'), ('User', getpass.getuser())):
             self.row(t, v, None, h=54)
         self.row('Password', 'Change the password for this user', self.btn('Change…', lambda: subprocess.Popen(['lxterminal', '-e', 'passwd'])), rw=100)
@@ -404,7 +404,8 @@ class SettingsWin(OsbWindow):
         try: cur = open('/usr/local/lib/osborne/version').read().strip()
         except Exception: cur = ''
         self.upd_cur = cur; self.upd_busy = False
-        self.row('Installed version', cur[:7] if cur else 'Unknown (installed before updates were tracked)', None)
+        from .version import VERSION
+        self.row('Installed version', 'v%s%s' % (VERSION, ('  \u00b7  build ' + cur[:7]) if cur else ''), None)
         self.upd_status = make_label('Checking for updates…', 11, 'semibold', 'text', w=self.PWd, h=px(20)); self.page.put(self.upd_status, px(6), px(self.y)); self.y += 30
         self.upd_log = make_label('', 9, 'normal', 'muted', w=self.PWd, h=px(16)); self.page.put(self.upd_log, px(6), px(self.y)); self.y += 26
         self.upd_bar = PulseBar(self.PWd - px(16)); self.upd_bar.set_no_show_all(True); self.page.put(self.upd_bar, px(6), px(self.y)); self.y += 22
