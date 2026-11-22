@@ -202,6 +202,7 @@ class TopBar(OsbWindow):
         try: return Gdk.Keymap.get_for_display(Gdk.Display.get_default()).get_direction() == Pango.Direction.RTL
         except Exception: return False
     def poll_layout(self):
+        import ctypes
         try:
             if not hasattr(self, '_x11'):
                 import ctypes; self._x11 = ctypes.CDLL('libX11.so.6'); self._x11.XOpenDisplay.restype = ctypes.c_void_p; self._dpy = self._x11.XOpenDisplay(None)
@@ -215,7 +216,8 @@ class TopBar(OsbWindow):
                 run_bg(['sh', '-c', 'setxkbmap -query'], got, 3)
             st = self._XkbState(); self._x11.XkbGetState(ctypes.c_void_p(self._dpy), 0x0100, ctypes.byref(st))
             self._set_label(st.group, self._layouts)
-        except Exception as e: pass
+        except Exception as e:
+            if not getattr(self, '_perr', False): self._perr = True; self._log_layout('poll error %r' % (e,))
         return True
     def tick(self):
         self.clock.set_text(time.strftime('%I:%M %p').lstrip('0') if os.path.exists(os.path.expanduser('~/.config/osborne/12h')) else time.strftime('%H:%M')); self.app.refresh_status(); return True
@@ -581,7 +583,22 @@ class ShellApp:
         watch_conf('lang', lambda: os.execv(sys.executable, [sys.executable] + sys.argv))
         watch_conf('dock.json', self.rebuild_dock); watch_conf('topbar.json', self.rebuild_bar); watch_conf('accent', self.accent_changed)
         GLib.timeout_add(2500, lambda: ([launch(['osb-clip']), launch(['osb-widgets'])], False)[-1])
+        self._fs_paused = False; GLib.timeout_add_seconds(3, self.fullscreen_check)
         self.net_last = None; GLib.timeout_add_seconds(30, self.net_usage); GLib.timeout_add_seconds(75, lambda: (self.update_check(), False)[-1]); GLib.timeout_add_seconds(6 * 3600, lambda: (self.update_check(), True)[-1])
+    def fullscreen_check(self):
+        """Pause notifications while a window is full screen; resume when it leaves full screen."""
+        if os.path.exists(os.path.join(CONF, 'nopresent')): return True
+        def work():
+            wid = sh_out('xdotool getactivewindow 2>/dev/null').strip()
+            fs = bool(wid) and 'FULLSCREEN' in sh_out('xprop -id %s _NET_WM_STATE 2>/dev/null' % wid)
+            GLib.idle_add(self._apply_fs, fs)
+        threading.Thread(target=work, daemon=True).start(); return True
+    def _apply_fs(self, fs):
+        if fs and not self._fs_paused:
+            self._fs_paused = True; subprocess.run(['dunstctl', 'set-paused', 'true'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif not fs and self._fs_paused:
+            self._fs_paused = False; subprocess.run(['dunstctl', 'set-paused', 'false'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return False
     def net_usage(self):
         """Count the bytes used per day (shown in Settings > Network)."""
         try:

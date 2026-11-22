@@ -65,4 +65,7 @@ def main():
     if subprocess.run(['pgrep', '-fc', 'python.*osb-lock'], capture_output=True, text=True).stdout.strip() not in ('0', '1'): return
     init_mode(); c = Gtk.CssProvider(); c.load_from_data(b'.lockentry{background:transparent;border:none;box-shadow:none;font-size:14px;} window.osb{background-color:#000;}')
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), c, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+    privacy = os.path.exists(os.path.join(CONF, 'lockprivacy'))
+    if privacy: subprocess.run(['dunstctl', 'set-paused', 'true'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)   # notifications wait until you unlock
     w = Lock(); w.show_all(); Gtk.main()
+    if privacy: subprocess.run(['dunstctl', 'set-paused', 'false'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

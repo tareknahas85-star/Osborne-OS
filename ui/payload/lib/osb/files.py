@@ -322,7 +322,7 @@ class FilesWindow(OsbWindow):
             if intrash: self.menu([('Restore', lambda: (restore(p), self.rebuild())), ('Delete permanently', lambda: (rm_perm(p), self.rebuild())), None, ('Empty trash', self.empty_trash)], e)
             else: self.menu([('Open', lambda: self.open(p, isdir)), None, ('Copy', lambda: self.set_clip('copy', p)), ('Cut', lambda: self.set_clip('cut', p)), ('Rename…', lambda: self.rename(p)),
                              ('Copy path', lambda: self.copy_path(p)), None, ('Move to Trash', lambda: self.trash(p))], e)
-        else: self.open(p, isdir)
+        elif e.type == Gdk.EventType._2BUTTON_PRESS: self.open(p, isdir)
     def bg_menu(self, e):
         if self.cwd == 'trash': self.menu([('Empty trash', self.empty_trash)], e); return
         base = self.cwd if os.path.isdir(self.cwd) else HOME
@@ -396,8 +396,12 @@ class FilesWindow(OsbWindow):
             notify('Files', ('Safe to remove ' if r.returncode == 0 else 'Could not eject ') + d['name']); GLib.idle_add(self.poll_devices)
         threading.Thread(target=w, daemon=True).start()
     def open(self, p, isdir):
-        if isdir: self.show_dir(p)
-        else: subprocess.Popen(['xdg-open', p], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if isdir: self.show_dir(p); return
+        mt = (Gio.content_type_guess(p, None)[0] or '')
+        textish = mt.startswith('text/') or mt in ('application/json', 'application/xml', 'application/x-shellscript', 'application/x-python')
+        if textish and shutil.which('mousepad'):
+            subprocess.Popen(['mousepad', p], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); return
+        subprocess.Popen(['xdg-open', p], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     def show_list(self, title, items, label=None, path=None, empty='This folder is empty'):
         self.clear(); P = self.page; self.cwd = path or title.lower()
         if label: self.highlight(label)

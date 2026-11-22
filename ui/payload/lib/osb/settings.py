@@ -172,21 +172,50 @@ class SettingsWin(OsbWindow):
         self.row('Today', 'Downloaded %s  \u00b7  Uploaded %s' % (fmt(today[0]), fmt(today[1])), None, h=54)
         self.row('Last 7 days', fmt(tot(7)), None, h=54); self.row('Last 30 days', fmt(tot(30)), None, h=54)
         self.note('Counting starts when the desktop starts. It does not show which app used the data.')
-        self.sect('VPN')
+        self.sect('Hotspot')
         d = getattr(self, '_vpn', None); self._vpn = None
         if d is None:
             self.note('Looking for VPN connections…')
             def work():
                 allc = sh('nmcli -t -f NAME,TYPE connection show', 6).splitlines(); act = sh('nmcli -t -f NAME connection show --active', 6).splitlines()
-                v = [(l.rsplit(':', 1)[0], l.rsplit(':', 1)[0] in act) for l in allc if l.rsplit(':', 1)[-1] in ('vpn', 'wireguard')]
-                self._vpn = v; GLib.idle_add(lambda: (self.show('network', True) if self.cur == 'network' else None, False)[-1])
+                v = []
+                for l in allc:
+                    if l.rsplit(':', 1)[-1] not in ('vpn', 'wireguard'): continue
+                    n = l.rsplit(':', 1)[0]; auto = sh('nmcli -g connection.autoconnect connection show id "%s"' % n.replace('"', ''), 4).strip() == 'yes'
+                    v.append((n, n in act, auto))
+                self._vpn = v; self._hot = sh('nmcli -t -f NAME connection show --active', 6).splitlines()
+                GLib.idle_add(lambda: (self.show('network', True) if self.cur == 'network' else None, False)[-1])
             threading.Thread(target=work, daemon=True).start(); return
+        # ---- hotspot: share this laptop's internet with a phone
+        hot_on = 'osb-hotspot' in getattr(self, '_hot', [])
+        pw = self.hotspot_password()
+        self.row('Wi-Fi hotspot', ('On. Phone name: Osborne-Hotspot  ·  Password: %s' % pw) if hot_on else 'Share this laptop\'s internet with your phone. Needs a Wi-Fi adapter.',
+                 self.btn('Turn off' if hot_on else 'Turn on', self.hotspot_toggle, not hot_on), rw=100, h=58)
+        self.sect('VPN')
         self.row('Add a VPN', 'Pick a WireGuard (.conf) or OpenVPN (.ovpn) file from your VPN provider', self.btn('Import…', self.vpn_import, True), rw=100)
         if not d: self.note('No VPN added yet.')
-        for name, up in d:
+        for name, up, auto in d:
             r = self.btn('Turn off' if up else 'Turn on', (lambda n=name, u=up: (self.notify('VPN', 'Working…'), bg('nmcli connection %s id "%s"' % ('down' if u else 'up', n.replace('"', '')), lambda o: (self.notify('VPN', (o or 'Done').splitlines()[-1][:80]), self.show('network', True)), 40))), not up)
-            self.row(name, 'Connected' if up else 'Not connected', r, rw=100)
+            self.row(name, 'Connected' if up else 'Not connected', r, rw=100, h=52)
+            self.row('Connect when the laptop starts', 'Turns this VPN on automatically at login', Switch(auto, lambda on, n=name: bg('nmcli connection modify id "%s" connection.autoconnect %s' % (n.replace('"', ''), 'yes' if on else 'no'), None, 10)), rw=42, h=52)
         self.note('The Proton VPN app is also installed. Find it in Apps.')
+    def hotspot_password(self):
+        f = os.path.join(CONF, 'hotspot.txt')
+        try: return open(f).read().strip()
+        except Exception:
+            import secrets, string
+            pw = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+            os.makedirs(CONF, exist_ok=True); open(f, 'w').write(pw); os.chmod(f, 0o600); return pw
+    def hotspot_toggle(self):
+        hot_on = 'osb-hotspot' in getattr(self, '_hot', [])
+        if hot_on:
+            bg('nmcli connection down id osb-hotspot', lambda o: (self.notify('Hotspot', 'Turned off'), self.show('network', True)), 20)
+            return
+        dev = sh("nmcli -t -f DEVICE,TYPE device | grep ':wifi$' | head -1 | cut -d: -f1", 4).strip()
+        if not dev: self.notify('Hotspot', 'No Wi-Fi adapter found'); return
+        pw = self.hotspot_password()
+        self.notify('Hotspot', 'Starting…')
+        bg('nmcli device wifi hotspot ifname %s con-name osb-hotspot ssid Osborne-Hotspot password "%s"' % (dev, pw), lambda o: (self.notify('Hotspot', 'On' if 'successfully' in o else (o.strip().splitlines() or ['Could not start'])[-1][:90]), self.show('network', True)), 40)
     def vpn_import(self):
         dlg = Gtk.FileChooserDialog(title='Choose a VPN file', parent=self, action=Gtk.FileChooserAction.OPEN)
         dlg.add_button('Cancel', Gtk.ResponseType.CANCEL); dlg.add_button('Import', Gtk.ResponseType.OK)
@@ -354,6 +383,17 @@ class SettingsWin(OsbWindow):
         for k, t, sub in (('clock', 'Clock widget', 'A big clock on the desktop'), ('system', 'System widget', 'Processor, memory and disk'), ('notes', 'Notes widget', 'A sticky note that remembers what you type'), ('weather', 'Weather widget', 'Needs an internet connection')):
             self.row(t, sub, Switch(wc[k]['on'], lambda on, k=k: wset(k, on)), rw=42, h=52)
         self.note('Drag a widget with the mouse to move it.')
+        self.sect('Privacy and focus')
+        def flag(name, on_when_true=True):
+            p = os.path.join(CONF, name)
+            def set_(on):
+                try:
+                    if on == on_when_true: open(p, 'w').write('1')
+                    elif os.path.exists(p): os.remove(p)
+                except Exception: pass
+            return set_
+        self.row('Hide notification text on the lock screen', 'While the screen is locked, notifications wait until you unlock.', Switch(os.path.exists(os.path.join(CONF, 'lockprivacy')), flag('lockprivacy')), rw=42, h=52)
+        self.row('Pause notifications in full screen', 'Films, presentations and screen sharing stay quiet. Turn it off if you want them while watching.', Switch(not os.path.exists(os.path.join(CONF, 'nopresent')), flag('nopresent', False)), rw=42, h=52)
         self.sect('Updates')
         nf = os.path.join(CONF, 'noupdatecheck')
         def uc(on):
@@ -500,7 +540,23 @@ class SettingsWin(OsbWindow):
         if not srcs: self.notify('Backup', 'Nothing to back up yet'); return
         self.notify('Backup', 'Started. You can keep working.')
         bg('tar czf "%s" --ignore-failed-read %s 2>&1; echo done:$?' % (out.replace('"', ''), ' '.join('"%s"' % p for p in srcs)), lambda o: self.notify('Backup', 'Finished: ' + os.path.basename(out) if o.strip().endswith('done:0') or 'done:1' in o else 'The backup failed'), 3600)
+    def clean_up(self):
+        from .common import ask_password
+        pw = ask_password(self, 'Clean up', 'Type your account password. This only clears system caches and old logs. Your files are not touched.', 'Clean up')
+        if pw is None: return
+        self.notify('Clean up', 'Working…')
+        def work():
+            try:
+                r = subprocess.run(['sudo', '-S', '-k', '-p', '', 'sh', '-c', 'apt-get clean >/dev/null 2>&1; journalctl --vacuum-size=100M >/dev/null 2>&1; echo cleaned'], input=pw + '\n', capture_output=True, text=True, timeout=180)
+                ok = 'cleaned' in r.stdout
+            except Exception: ok = False
+            GLib.idle_add(lambda: (self.notify('Clean up', 'Done. Old caches and logs were cleared.' if ok else 'Could not clean up. Check the password.'), self.show('storage', True), False)[-1])
+        threading.Thread(target=work, daemon=True).start()
     def p_storage(self):
+        seen = set()
+        cache = sh('du -sh /var/cache/apt/archives 2>/dev/null | cut -f1').strip() or '0'
+        jm = re.search(r'take up ([\d.]+\s*\w+)', sh('journalctl --disk-usage 2>/dev/null')); jr = jm.group(1) if jm else '?'
+        self.row('Clean up system files', 'Clears the package cache (%s) and old system logs (%s). Your files are not touched.' % (cache, jr), self.btn('Clean up…', self.clean_up), rw=110, h=58)
         seen = set()
         if os.path.exists('/var/lib/osborne/auto-unlock'):
             m = self.vault_mounted()

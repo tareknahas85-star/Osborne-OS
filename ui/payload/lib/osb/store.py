@@ -43,15 +43,18 @@ def run_stream(cmd, on_line, timeout=1800, stdin_text=None):
     if stdin_text is not None:
         try: p.stdin.write(stdin_text.encode()); p.stdin.close()
         except Exception: pass
-    buf = b''; t0 = time.time(); last = ''
+    buf = b''; t0 = time.time(); last = ''; seen = time.time(); warned = 0
     while True:
         if time.time() - t0 > timeout: p.kill(); return 1, 'timed out'
         r, _, _ = select.select([master], [], [], 1.0)
+        if not r and time.time() - seen > 30 * (warned + 1):
+            warned += 1
+            on_line('Still working, no output from flatpak yet (%d s)…' % int(time.time() - t0))
         if r:
             try: d = os.read(master, 2048)
             except OSError: d = b''
             if not d: break
-            buf += d
+            seen = time.time(); buf += d
             parts = re.split(rb'[\r\n]', buf); buf = parts.pop()
             for part in parts:
                 t = re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', part.decode('utf-8', 'replace')).strip()
@@ -67,7 +70,7 @@ def ensure_flathub(on_line=None):
     if not have('flatpak'): _fh['err'] = 'Flatpak is not installed on this system.'; return False
     rc, out, err = run(['flatpak', 'remote-add', '--user', '--if-not-exists', 'flathub', FLATHUB], 60)
     if rc != 0: _fh['err'] = (err or out).strip().splitlines()[-1][:120] if (err or out).strip() else 'Could not add Flathub.'; return False
-    rc, last = run_stream(['flatpak', 'update', '--user', '--appstream', '-y', '--noninteractive', 'flathub'], on_line or (lambda t: None), 240)
+    rc, last = run_stream(['flatpak', 'update', '--user', '--appstream', '-y', '--noninteractive', 'flathub'], on_line or (lambda t: None), 420)
     _fh['ready'] = rc == 0; _fh['err'] = '' if rc == 0 else (last or 'Could not download the app list.')
     return _fh['ready']
 
@@ -110,7 +113,9 @@ def installed_ids():
 
 def do_install(a, on_line, pw=None):
     if a['src'] == 'flathub':
-        if not _fh['ready'] and not ensure_flathub(on_line): return 1, 'Flathub: ' + (_fh['err'] or 'not reachable')
+        if not _fh['ready']:
+            on_line('Downloading the Flathub app list (first time only, can take a few minutes)…')
+            if not ensure_flathub(on_line): return 1, 'Flathub: ' + (_fh['err'] or 'not reachable')
         return run_stream(['flatpak', 'install', '--user', '-y', '--noninteractive', 'flathub', a['id']], on_line, 3600)
     cmd = ['sudo', '-S', '-k', '-p', '', 'snap', 'install', a['id']] + (['--classic'] if a.get('classic') else [])
     return run_stream(cmd, on_line, 3600, stdin_text=(pw or '') + '\n')
