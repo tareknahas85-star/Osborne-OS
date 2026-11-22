@@ -58,6 +58,7 @@ class Switcher(OsbWindow):
         self.sel = self.start; self.move_hl()
         self.connect('key-press-event', self.on_key); self.connect('key-release-event', self.on_release)
         self.connect('map-event', lambda *a: GLib.idle_add(self.grab)); self.alt_held = True
+        if mode == 'overview': self.dismiss_on_outside()
     def move_hl(self):
         if self.wins and hasattr(self, 'hl'):
             x, y = self.cards[self.sel]; self.content.move(self.hl, px(x), px(y))

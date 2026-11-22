@@ -14,7 +14,7 @@ def bg(cmd, cb=None, timeout=30):
         if cb: GLib.idle_add(cb, out)
     threading.Thread(target=w, daemon=True).start()
 
-CATS = [('Profile', 'user', 'profile'), ('Wi-Fi', 'wifi', 'wifi'), ('Bluetooth', 'bluetooth', 'bluetooth'), ('Sound', 'speaker', 'sound'), ('Display', 'monitor', 'display'),
+CATS = [('Profile', 'user', 'profile'), ('Wi-Fi', 'wifi', 'wifi'), ('Network & VPN', 'globe', 'network'), ('Bluetooth', 'bluetooth', 'bluetooth'), ('Sound', 'speaker', 'sound'), ('Display', 'monitor', 'display'),
         ('Appearance', 'palette', 'appearance'), ('Customize', 'grid', 'customize'), ('Keyboard', 'keyboard', 'keyboard'), ('Devices', 'gear', 'devices'), ('Power & Lock', 'battery', 'power'), ('Date & Time', 'clock', 'time'),
         ('Storage', 'disk', 'storage'), ('System Info', 'info', 'about'), ('System Update', 'download', 'update'), ('About', 'star', 'creator')]
 CONF = os.path.expanduser('~/.config/osborne')
@@ -121,17 +121,84 @@ class SettingsWin(OsbWindow):
         d.destroy()
     def notify(self, t, b): subprocess.Popen(['notify-send', t, b], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     def p_bluetooth(self):
-        on = 'yes' in sh('bluetoothctl show | grep Powered')
-        self.row('Bluetooth', 'Turn Bluetooth on or off' if sh('bluetoothctl show') else 'No Bluetooth adapter found', Switch(on, lambda v: bg('rfkill unblock bluetooth; bluetoothctl power %s' % ('on' if v else 'off'), lambda o: self.show('bluetooth', True), 12)), rw=42)
+        d = getattr(self, '_bt', None); self._bt = None
+        if d is None:   # gather everything off the UI thread, then redraw (this used to freeze the page for seconds)
+            self.note('Looking for Bluetooth…')
+            def work():
+                show = sh('bluetoothctl show', 5); devs = []
+                for ln in sh('bluetoothctl devices', 5).splitlines():
+                    mm = re.match(r'Device ([0-9A-F:]{17}) (.*)', ln)
+                    if mm: devs.append((mm.group(1), mm.group(2), sh('bluetoothctl info ' + mm.group(1), 4)))
+                self._bt = dict(show=show, devs=devs); GLib.idle_add(lambda: (self.show('bluetooth', True) if self.cur == 'bluetooth' else None, False)[-1])
+            threading.Thread(target=work, daemon=True).start(); return
+        on = 'yes' in d['show']
+        self.row('Bluetooth', 'Turn Bluetooth on or off' if d['show'] else 'No Bluetooth adapter found', Switch(on, lambda v: bg('rfkill unblock bluetooth; bluetoothctl power %s' % ('on' if v else 'off'), lambda o: self.show('bluetooth', True), 12)), rw=42)
         self.sect('Devices'); self.row('Search for devices', 'Scan for nearby devices for 10 seconds', self.btn('Scan', lambda: (bg('bluetoothctl --timeout 10 scan on', lambda o: self.show('bluetooth', True), 20), self.notify('Bluetooth', 'Scanning…')), True), rw=80)
-        devs = sh('bluetoothctl devices').splitlines()
-        if not devs: self.note('No devices yet. Put your device in pairing mode and press Scan.')
-        for ln in devs:
-            mm = re.match(r'Device ([0-9A-F:]{17}) (.*)', ln)
-            if not mm: continue
-            mac, name = mm.groups(); info = sh('bluetoothctl info ' + mac); con = 'Connected: yes' in info; paired = 'Paired: yes' in info
+        if not d['devs']: self.note('No devices yet. Put your device in pairing mode and press Scan.')
+        for mac, name, info in d['devs']:
+            con = 'Connected: yes' in info; paired = 'Paired: yes' in info
             self.row(name, 'Connected' if con else ('Paired' if paired else 'Not paired'), self.btn('Disconnect' if con else ('Connect' if paired else 'Pair'),
                      (lambda m=mac, c=con, p=paired: (bg('bluetoothctl disconnect %s' % m if c else ('bluetoothctl connect %s' % m if p else 'bluetoothctl pair %s && bluetoothctl trust %s && bluetoothctl connect %s' % (m, m, m)), lambda o: self.show('bluetooth', True), 30), self.notify('Bluetooth', 'Working…')))), rw=110)
+    # ---- network usage + VPN
+    def p_network(self):
+        self.sect('Speed right now', 0)
+        self.spd = make_label('', 12, 'semibold', 'text', w=px(400), h=px(20)); self.page.put(self.spd, px(8), px(self.y)); self.y += 30
+        self._nl = None
+        def tick():
+            try:
+                rx = tx = 0
+                for ln in list(open('/proc/net/dev'))[2:]:
+                    n, d = ln.split(':', 1)
+                    if n.strip() == 'lo': continue
+                    f = d.split(); rx += int(f[0]); tx += int(f[8])
+                now = time.time()
+                if self._nl and now > self._nl[2]:
+                    from .shell import fmt_speed
+                    self.spd.set_text('\u2193 %s     \u2191 %s' % (fmt_speed(max(0, (rx - self._nl[0]) / (now - self._nl[2]))), fmt_speed(max(0, (tx - self._nl[1]) / (now - self._nl[2])))))
+                self._nl = (rx, tx, now)
+            except Exception: pass
+            return self.cur == 'network' and self.spd.get_parent() is not None
+        self.every(1, tick); tick()
+        self.sect('Data used')
+        try: u = json.load(open(os.path.join(CONF, 'netusage.json')))
+        except Exception: u = {}
+        def tot(days):
+            ks = sorted(u)[-days:]; return sum(u[k][0] + u[k][1] for k in ks)
+        def fmt(b):
+            for unit in ('B', 'KB', 'MB', 'GB'):
+                if b < 1024 or unit == 'GB': return ('%.0f %s' % (b, unit)) if unit == 'B' else '%.1f %s' % (b, unit)
+                b /= 1024.0
+        today = u.get(time.strftime('%Y-%m-%d'), [0, 0])
+        self.row('Today', 'Downloaded %s  \u00b7  Uploaded %s' % (fmt(today[0]), fmt(today[1])), None, h=54)
+        self.row('Last 7 days', fmt(tot(7)), None, h=54); self.row('Last 30 days', fmt(tot(30)), None, h=54)
+        self.note('Counting starts when the desktop starts. It does not show which app used the data.')
+        self.sect('VPN')
+        d = getattr(self, '_vpn', None); self._vpn = None
+        if d is None:
+            self.note('Looking for VPN connections…')
+            def work():
+                allc = sh('nmcli -t -f NAME,TYPE connection show', 6).splitlines(); act = sh('nmcli -t -f NAME connection show --active', 6).splitlines()
+                v = [(l.rsplit(':', 1)[0], l.rsplit(':', 1)[0] in act) for l in allc if l.rsplit(':', 1)[-1] in ('vpn', 'wireguard')]
+                self._vpn = v; GLib.idle_add(lambda: (self.show('network', True) if self.cur == 'network' else None, False)[-1])
+            threading.Thread(target=work, daemon=True).start(); return
+        self.row('Add a VPN', 'Pick a WireGuard (.conf) or OpenVPN (.ovpn) file from your VPN provider', self.btn('Import…', self.vpn_import, True), rw=100)
+        if not d: self.note('No VPN added yet.')
+        for name, up in d:
+            r = self.btn('Turn off' if up else 'Turn on', (lambda n=name, u=up: (self.notify('VPN', 'Working…'), bg('nmcli connection %s id "%s"' % ('down' if u else 'up', n.replace('"', '')), lambda o: (self.notify('VPN', (o or 'Done').splitlines()[-1][:80]), self.show('network', True)), 40))), not up)
+            self.row(name, 'Connected' if up else 'Not connected', r, rw=100)
+        self.note('The Proton VPN app is also installed. Find it in Apps.')
+    def vpn_import(self):
+        dlg = Gtk.FileChooserDialog(title='Choose a VPN file', parent=self, action=Gtk.FileChooserAction.OPEN)
+        dlg.add_button('Cancel', Gtk.ResponseType.CANCEL); dlg.add_button('Import', Gtk.ResponseType.OK)
+        f = Gtk.FileFilter(); f.set_name('VPN files')
+        for pat in ('*.conf', '*.ovpn'): f.add_pattern(pat)
+        dlg.add_filter(f); dlg.set_current_folder(os.path.expanduser('~/Downloads') if os.path.isdir(os.path.expanduser('~/Downloads')) else os.path.expanduser('~'))
+        path = dlg.get_filename() if dlg.run() == Gtk.ResponseType.OK else None
+        dlg.destroy()
+        if not path: return
+        kind = 'openvpn' if path.lower().endswith('.ovpn') else 'wireguard'
+        self.notify('VPN', 'Importing…')
+        bg('nmcli connection import type %s file "%s"' % (kind, path.replace('"', '')), lambda o: (self.notify('VPN', 'Imported' if 'successfully' in o else (o or 'Could not import this file')[:90]), self.show('network', True)), 30)
     def vol(self, tgt='@DEFAULT_AUDIO_SINK@'):
         o = sh('wpctl get-volume %s' % tgt)
         try: return min(1.0, float(o.split()[1])), 'MUTED' in o
@@ -197,8 +264,12 @@ class SettingsWin(OsbWindow):
             ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(self.PWd // 2 - px(12), px(110)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             ev.connect('button-press-event', lambda w, e, m=mode: (self.set_theme(m), True)[-1]); self.page.put(ev, x, px(self.y))
         self.y += 128; self.note('The whole system follows this choice: apps, menus, window titles, terminal and notifications.')
-        self.page.put(make_label('Wallpaper', 12, 'semibold', 'text', w=px(300), h=px(20)), px(2), px(self.y)); self.y += 30
+        self.page.put(make_label('Wallpaper', 12, 'semibold', 'text', w=px(300), h=px(20)), px(2), px(self.y))
+        addb = self.btn('Add my picture…', self.add_wall); addb.set_size_request(px(170), px(32)); self.page.put(addb, self.PWd - px(180), px(self.y - 6)); self.y += 38
         opts = [('default', 'Default')] + [('builtin:' + k, k.capitalize()) for k in WALLS]
+        try:
+            wd = os.path.join(CONF, 'wallpapers'); opts += [(os.path.join(wd, f), os.path.splitext(f)[0][:12]) for f in sorted(os.listdir(wd)) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp')) and os.path.isfile(os.path.join(wd, f))][:12]
+        except Exception: pass
         try:
             pics = os.path.expanduser('~/Pictures'); opts += [(os.path.join(pics, f), os.path.splitext(f)[0][:12]) for f in sorted(os.listdir(pics)) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')) and os.path.isfile(os.path.join(pics, f))][:6]
         except Exception: pass
@@ -213,7 +284,20 @@ class SettingsWin(OsbWindow):
             da.connect('button-press-event', lambda w, e, v=val: (e.type == Gdk.EventType.BUTTON_PRESS and e.button == 1 and (set_wall(v), GLib.idle_add(self.show, 'appearance', True)), True)[-1])
             self.page.put(da, x, y); self.page.put(make_label(name, 9.5, 'normal', 'muted', w=tw, h=px(14)), x, y + th + px(4))
         rows = (len(opts) + per - 1) // per; self.y += rows * (70 + 30) + 6
-        self.note('Put your own pictures in the Pictures folder and they will show up here.')
+        self.note('Press “Add my picture…” to use your own image. Pictures in your Pictures folder show up here too.')
+    def add_wall(self):
+        dlg = Gtk.FileChooserDialog(title='Choose a picture', parent=self, action=Gtk.FileChooserAction.OPEN)
+        dlg.add_button('Cancel', Gtk.ResponseType.CANCEL); dlg.add_button('Use as wallpaper', Gtk.ResponseType.OK)
+        f = Gtk.FileFilter(); f.set_name('Pictures')
+        for pat in ('*.png', '*.jpg', '*.jpeg', '*.webp', '*.bmp', '*.PNG', '*.JPG', '*.JPEG'): f.add_pattern(pat)
+        dlg.add_filter(f); dlg.set_current_folder(os.path.expanduser('~/Pictures') if os.path.isdir(os.path.expanduser('~/Pictures')) else os.path.expanduser('~'))
+        if dlg.run() == Gtk.ResponseType.OK:
+            src = dlg.get_filename()
+            try:
+                import shutil; wd = os.path.join(CONF, 'wallpapers'); os.makedirs(wd, exist_ok=True)
+                dst = os.path.join(wd, os.path.basename(src)); shutil.copyfile(src, dst); set_wall(dst)
+            except Exception as ex: self.notify('Wallpaper', 'Could not add the picture: %s' % ex)
+        dlg.destroy(); self.show('appearance', True)
     def run_theme(self, m):
         try: subprocess.Popen(['osb-apply-theme', m])
         except Exception as e: print('apply-theme', e, file=sys.stderr)
@@ -263,6 +347,21 @@ class SettingsWin(OsbWindow):
         for key, title, sub in (('cpu', 'CPU usage', 'Show how busy the processor is'), ('ram', 'Memory usage', 'Show how much memory is used'), ('net', 'Network speed', 'Show download and upload speed')):
             self.row(title, sub, Switch(bool(bar.get(key)), lambda on, k=key: self.bar_set(k, on)), rw=42, h=52)
         self.note('Tip: right-click the top bar or a dock icon for quick options.')
+        from . import widgets as W
+        wc = W.load(); self.sect('Desktop widgets')
+        def wset(k, on):
+            wc[k]['on'] = on; W.save(wc); subprocess.Popen(['osb-widgets'], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for k, t, sub in (('clock', 'Clock widget', 'A big clock on the desktop'), ('system', 'System widget', 'Processor, memory and disk'), ('notes', 'Notes widget', 'A sticky note that remembers what you type'), ('weather', 'Weather widget', 'Needs an internet connection')):
+            self.row(t, sub, Switch(wc[k]['on'], lambda on, k=k: wset(k, on)), rw=42, h=52)
+        self.note('Drag a widget with the mouse to move it.')
+        self.sect('Updates')
+        nf = os.path.join(CONF, 'noupdatecheck')
+        def uc(on):
+            try:
+                if on and os.path.exists(nf): os.remove(nf)
+                elif not on: open(nf, 'w').write('1')
+            except Exception: pass
+        self.row('Tell me about updates', 'Shows a message when a new version is ready. It never installs by itself.', Switch(not os.path.exists(nf), uc), rw=42, h=52)
         self.page.put(self.btn('Reset top bar', lambda: (save_json(BARFILE, BAR_DEFAULT), self.show('customize', True))), px(2), px(self.y)); self.y += 44
     def pick_accent(self, hx):
         set_accent(hx); apply_accent(hx); apply_css(State.mode); restyle_labels(); self.run_theme(State.mode)
@@ -373,8 +472,40 @@ class SettingsWin(OsbWindow):
             r = subprocess.run(['sudo', '-S', '-k', '-p', '', '/usr/local/sbin/osb-data-setup', getpass.getuser()], input='%s\n%s\n' % (pw, pw), capture_output=True, text=True)
             self.notify('Storage', 'Private storage is ready' if r.returncode == 0 else ((r.stdout.strip().splitlines() or ['Could not set up the storage'])[-1]))
         d.destroy(); self.show('storage', True)
+    def vault_mounted(self): return os.path.ismount('/mnt/data')
+    def vault_toggle(self):
+        from .common import ask_password
+        if self.vault_mounted():
+            if subprocess.run(['fuser', '-m', '/mnt/data'], capture_output=True).returncode == 0: self.notify('Private storage', 'Close the files that are open in it first'); return
+            pw = ask_password(self, 'Lock private storage', 'Type your account password to lock your private files.', 'Lock')
+            if pw is None: return
+            r = subprocess.run(['sudo', '-S', '-k', '-p', '', 'sh', '-c', 'umount /mnt/data && cryptsetup close data_crypt'], input=pw + '\n', capture_output=True, text=True)
+            self.notify('Private storage', 'Locked' if r.returncode == 0 else 'Could not lock it')
+        else:
+            pw = ask_password(self, 'Unlock private storage', 'Type your account password to unlock your private files.', 'Unlock')
+            if pw is None: return
+            script = '[ -e /dev/mapper/data_crypt ] || cryptsetup open --key-file=- /dev/disk/by-partlabel/data data_crypt || exit 3; mkdir -p /mnt/data; mount /dev/mapper/data_crypt /mnt/data'
+            r = subprocess.run(['sudo', '-S', '-k', '-p', '', 'sh', '-c', script], input=pw + '\n' + pw, capture_output=True, text=True)
+            self.notify('Private storage', 'Unlocked' if r.returncode == 0 else 'Could not unlock it (wrong password?)')
+        self.show('storage', True)
+    def backup_now(self):
+        dlg = Gtk.FileChooserDialog(title='Where should the backup go?', parent=self, action=Gtk.FileChooserAction.SELECT_FOLDER)
+        dlg.add_button('Cancel', Gtk.ResponseType.CANCEL); dlg.add_button('Back up here', Gtk.ResponseType.OK)
+        dst = dlg.get_filename() if dlg.run() == Gtk.ResponseType.OK else None
+        dlg.destroy()
+        if not dst: return
+        out = os.path.join(dst, time.strftime('osborne-backup-%Y%m%d-%H%M.tar.gz')); home = os.path.expanduser('~')
+        srcs = [p for p in (os.path.join(home, d) for d in ('Documents', 'Pictures', 'Videos', 'Music', 'Downloads', 'Desktop')) if os.path.isdir(p)]
+        if self.vault_mounted(): srcs.append('/mnt/data')
+        if not srcs: self.notify('Backup', 'Nothing to back up yet'); return
+        self.notify('Backup', 'Started. You can keep working.')
+        bg('tar czf "%s" --ignore-failed-read %s 2>&1; echo done:$?' % (out.replace('"', ''), ' '.join('"%s"' % p for p in srcs)), lambda o: self.notify('Backup', 'Finished: ' + os.path.basename(out) if o.strip().endswith('done:0') or 'done:1' in o else 'The backup failed'), 3600)
     def p_storage(self):
         seen = set()
+        if os.path.exists('/var/lib/osborne/auto-unlock'):
+            m = self.vault_mounted()
+            self.row('Private storage', 'Unlocked. Your private files are open.' if m else 'Locked. Your private files are hidden until you unlock them.', self.btn('Lock' if m else 'Unlock', self.vault_toggle, not m), rw=100)
+        self.row('Back up my files', 'Make a copy of your files on a USB drive or another folder. It only runs when you press this.', self.btn('Back up…', self.backup_now), rw=110)
         if os.path.exists('/var/lib/osborne/setup-done') and not os.path.exists('/var/lib/osborne/auto-unlock'):
             self.row('Private storage', 'Not set up yet. Your private files get their own locked area on the card.', self.btn('Set up…', self.setup_private_storage, True), rw=100)
         for ln in sh('df -h --output=source,size,used,avail,pcent,target -x tmpfs -x devtmpfs -x squashfs -x overlay').splitlines()[1:]:

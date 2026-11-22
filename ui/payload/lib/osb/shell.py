@@ -1,5 +1,5 @@
 """osb-shell: wallpaper + top bar + dock + quick settings (HeroUI 'Linux Desktop' design)."""
-import os, sys, re, time, subprocess, threading, getpass, pwd, ctypes
+import os, sys, re, time, json, subprocess, threading, getpass, pwd, ctypes
 import gi
 gi.require_version('GdkX11','3.0')
 from gi.repository import GdkX11
@@ -176,9 +176,13 @@ class TopBar(OsbWindow):
             n = max(1, len(self._layouts or ['us']))
             if n < 2:
                 subprocess.run(['setxkbmap', '-layout', 'us,ara', '-option', 'grp:alt_shift_toggle'], timeout=5); self._layouts = None; n = 2
-            self._x11.XkbLockGroup(ctypes.c_void_p(self._dpy), 0x0100, (st.group + 1) % n); self._x11.XFlush(ctypes.c_void_p(self._dpy))
+            cur = 1 if self._rtl() else 0
+            self._x11.XkbLockGroup(ctypes.c_void_p(self._dpy), 0x0100, (cur + 1) % n); self._x11.XFlush(ctypes.c_void_p(self._dpy))
             self.poll_layout()
         except Exception as e: print('layout', e, file=sys.stderr)
+    def _rtl(self):
+        try: return Gdk.Keymap.get_for_display(Gdk.Display.get_default()).get_direction() == Pango.Direction.RTL
+        except Exception: return False
     def poll_layout(self):
         try:
             if not hasattr(self, '_x11'):
@@ -192,7 +196,10 @@ class TopBar(OsbWindow):
                     m = re.search(r'layout:\s+(\S+)', q or ''); self._layouts = (m.group(1) if m else 'us').split(',')
                 run_bg(['sh', '-c', 'setxkbmap -query'], got, 3)
             st = self._XkbState(); self._x11.XkbGetState(ctypes.c_void_p(self._dpy), 0x0100, ctypes.byref(st))
-            code = self._layouts[min(st.group, len(self._layouts) - 1)]; self.lay.set_text({'us': 'EN', 'ara': 'AR', 'ar': 'AR', 'gb': 'EN', 'fr': 'FR', 'de': 'DE'}.get(code, code[:2].upper()))
+            code = self._layouts[min(st.group, len(self._layouts) - 1)]
+            if self._rtl(): code = 'ara'
+            elif code in ('ara', 'ar'): code = 'us'
+            self.lay.set_text({'us': 'EN', 'ara': 'AR', 'ar': 'AR', 'gb': 'EN', 'fr': 'FR', 'de': 'DE'}.get(code, code[:2].upper()))
         except Exception as e: pass
         return True
     def tick(self):
@@ -316,7 +323,7 @@ class Dock(OsbWindow):
                 rounded_rect(cr, 0, 0, px(T), px(T), px(14)); cr.set_source_rgba(*hex2rgb(pal('trash'))); cr.fill()
                 draw_icon(cr, 'trash', px(T * 0.21), px(T * 0.21), px(T * 0.57), pal('trashicon'), 1.7); return False
             t.connect('draw', dt); t.connect('button-press-event', lambda *a: launch('osb-files --trash')); self.put(t, sx + px(9), px(9))
-        GLib.timeout_add(2500, self.poll); self.poll()
+        self._poll_id = GLib.timeout_add(2500, self.poll); self.connect('destroy', lambda *a: (GLib.source_remove(self._poll_id) if self._poll_id else None, setattr(self, '_poll_id', 0), setattr(self, '_dead', True))); self.poll()
     def item_menu(self, item, e):
         """Right-click menu of a dock icon."""
         m = new_menu(); self.app.menu_open = True; d = load_dock(); its = d['items']; i = its.index(item) if item in its else -1
@@ -357,6 +364,7 @@ class Dock(OsbWindow):
         dot.connect('draw', lambda w, cr: ((cr.arc(px(2.5), px(2.5), px(2.2), 0, 6.3), cr.set_source_rgba(*hex2rgb(pal('bar'))), cr.fill()) if w.on else None, False)[-1])
         self.put(dot, x + px(T / 2.0) - px(2), px(9 + T + 3)); self.pin_dots[key] = dot
     def poll(self):
+        if getattr(self, '_dead', False): return False
         def work():
             res = {cls: bool(sh_out("xdotool search --class %s 2>/dev/null | head -1" % cls)) for cls in self.dots}
             try: wins = list_windows()
@@ -364,6 +372,7 @@ class Dock(OsbWindow):
             GLib.idle_add(self.apply_poll, res, wins)
         threading.Thread(target=work, daemon=True).start(); return True
     def apply_poll(self, res, wins):
+        if getattr(self, '_dead', False) or self.app.dock is not self: return False
         for cls, on in res.items():
             d = self.dots[cls]
             if d.on != on: d.on = on; d.queue_draw()
@@ -383,7 +392,7 @@ class Dock(OsbWindow):
         new = [(k, ais[k], labs[k]) for k in ew]
         if [e[0] for e in new] != [e[0] for e in self.extras]:
             global EXTRAS
-            EXTRAS = new; self.app.rebuild_dock()
+            EXTRAS = new; GLib.idle_add(self.app.rebuild_dock)
         return False
     def run_tile(self, key, ai, lab, T=42):
         d = self.app_tile(ai, T, None, key=key, label=lab)
@@ -556,6 +565,40 @@ class ShellApp:
         watch_conf('touchpad.json', sysconf.apply_touchpad); watch_conf('power.json', sysconf.apply_power)
         watch_conf('lang', lambda: os.execv(sys.executable, [sys.executable] + sys.argv))
         watch_conf('dock.json', self.rebuild_dock); watch_conf('topbar.json', self.rebuild_bar); watch_conf('accent', self.accent_changed)
+        GLib.timeout_add(2500, lambda: ([launch(['osb-clip']), launch(['osb-widgets'])], False)[-1])
+        self.net_last = None; GLib.timeout_add_seconds(30, self.net_usage); GLib.timeout_add_seconds(75, lambda: (self.update_check(), False)[-1]); GLib.timeout_add_seconds(6 * 3600, lambda: (self.update_check(), True)[-1])
+    def net_usage(self):
+        """Count the bytes used per day (shown in Settings > Network)."""
+        try:
+            rx = tx = 0
+            for ln in list(open('/proc/net/dev'))[2:]:
+                n, d = ln.split(':', 1)
+                if n.strip() == 'lo' or n.strip().startswith(('docker', 'veth', 'virbr')): continue
+                f = d.split(); rx += int(f[0]); tx += int(f[8])
+            if self.net_last and rx >= self.net_last[0] and tx >= self.net_last[1]:
+                p = os.path.join(CONF, 'netusage.json'); day = time.strftime('%Y-%m-%d')
+                try: d = json.load(open(p))
+                except Exception: d = {}
+                a = d.get(day, [0, 0]); d[day] = [a[0] + rx - self.net_last[0], a[1] + tx - self.net_last[1]]
+                for k in sorted(d)[:-70]: d.pop(k, None)
+                save_json(p, d)
+            self.net_last = (rx, tx)
+        except Exception as ex: print('netusage', ex, file=sys.stderr)
+        return True
+    def update_check(self):
+        """Tell the user once when a new version is on GitHub. It only looks; nothing is downloaded."""
+        if os.path.exists(os.path.join(CONF, 'noupdatecheck')): return
+        def work():
+            import urllib.request
+            try:
+                with urllib.request.urlopen(urllib.request.Request('https://api.github.com/repos/tareknahas85-star/Osborne-OS/commits/main', headers={'User-Agent': 'osborne'}), timeout=15) as r: sha = json.load(r)['sha']
+                cur = open('/usr/local/lib/osborne/version').read().strip() if os.path.exists('/usr/local/lib/osborne/version') else ''
+                seen = os.path.join(CONF, 'update-notified'); last = open(seen).read().strip() if os.path.exists(seen) else ''
+                if sha != cur and sha != last:
+                    open(seen, 'w').write(sha)
+                    subprocess.Popen(['notify-send', '-a', 'Osborne', T('A new Osborne update is available'), T('Open Settings > System Update to install it.')])
+            except Exception: pass
+        threading.Thread(target=work, daemon=True).start()
     def rebuild_dock(self):
         old = self.dock; self.dock = Dock(self); self.dock.show_all(); old.destroy()
     def rebuild_bar(self):

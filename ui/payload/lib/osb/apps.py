@@ -9,7 +9,7 @@ class AppDrawer(OsbWindow):
         cw, ch, m = px(760), px(540), px(40)
         super().__init__(cw, ch, m, None, 'Apps'); self.shadow = (28, 16, 32)
         self.set_wmclass('osb-apps', 'Osb-apps'); self.set_type_hint(Gdk.WindowTypeHint.DIALOG); self.set_position(Gtk.WindowPosition.CENTER)
-        self.set_keep_above(True); self.enable_escape()
+        self.set_keep_above(True); self.dismiss_on_outside()
         self.put(Box('panel', cw, ch), 0, 0)
         self.put(Box('qsrow', px(716), px(46)), px(22), px(22)); self.put(Icon('search', px(18), 'muted', 1.6), px(36), px(36))
         self.entry = Gtk.Entry(); self.entry.set_has_frame(False); self.entry.set_placeholder_text('Search apps'); self.entry.set_size_request(px(640), px(34))

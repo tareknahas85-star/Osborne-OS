@@ -543,6 +543,24 @@ class OsbWindow(Gtk.Window):
         self.cw, self.ch = int(cw), int(ch); self.content.set_size_request(self.cw, self.ch)
         self.fixed.set_size_request(self.cw + 2*self.M, self.ch + 2*self.M); self.resize(self.cw + 2*self.M, self.ch + 2*self.M)
         self._shape(); self.queue_draw()
+    def dismiss_on_outside(self):
+        """Close on Escape and on any click outside the window (works even when the window manager never focuses it)."""
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.KEY_PRESS_MASK)
+        def grab():
+            try:
+                Gdk.Display.get_default().get_default_seat().grab(self.get_window(), Gdk.SeatCapabilities.ALL, True, None, None, None)
+            except Exception as e: print('grab', e, file=sys.stderr)
+            return False
+        def press(w, e):
+            try:
+                ox, oy = self.get_window().get_origin()[1:]; a = self.get_allocation()
+                if not (ox <= e.x_root <= ox + a.width and oy <= e.y_root <= oy + a.height): self.close(); return True
+            except Exception: pass
+            return False
+        self.connect('button-press-event', press)
+        self.connect('key-press-event', lambda w, e: (self.close(), True)[-1] if e.keyval == Gdk.KEY_Escape else False)
+        self.connect('map-event', lambda *a: GLib.timeout_add(120, grab) and False)
+        self.connect('destroy', lambda *a: Gdk.Display.get_default().get_default_seat().ungrab())
     def enable_escape(self):
         self.connect('key-press-event', lambda w, e: (self.close(), True)[-1] if e.keyval == Gdk.KEY_Escape else False)
 

@@ -18,18 +18,36 @@ apt-get install -y -qq --no-install-recommends \
   xcape fonts-noto-core sound-theme-freedesktop pulseaudio-utils xserver-xorg-input-libinput curl ca-certificates || echo "  (some packages could not be installed; continuing)"
 echo "[1b/6] Hardware support, apps and tools..."
 apt-get install -y -qq --no-install-recommends linux-firmware intel-microcode amd64-microcode firmware-sof-signed wireless-regdb 2>/dev/null || apt-get install -y -qq --no-install-recommends linux-firmware 2>/dev/null || echo "  (firmware packages skipped)"
-apt-get install -y -qq --no-install-recommends xinput redshift mousepad evince mpv xarchiver viewnior cups system-config-printer ufw zram-tools fonts-noto-core fonts-noto-ui-core 2>/dev/null || {
-  for pk in xinput redshift mousepad evince mpv xarchiver viewnior cups system-config-printer ufw zram-tools fonts-noto-core; do apt-get install -y -qq --no-install-recommends $pk >/dev/null 2>&1 || echo "  (could not install $pk)"; done; }
+apt-get install -y -qq --no-install-recommends xinput redshift mousepad evince mpv xarchiver viewnior cups system-config-printer ufw zram-tools fonts-noto-core fonts-noto-ui-core ffmpeg wireguard-tools network-manager-openvpn psmisc 2>/dev/null || {
+  for pk in xinput redshift mousepad evince mpv xarchiver viewnior cups system-config-printer ufw zram-tools fonts-noto-core ffmpeg wireguard-tools network-manager-openvpn psmisc; do apt-get install -y -qq --no-install-recommends $pk >/dev/null 2>&1 || echo "  (could not install $pk)"; done; }
 echo "[2/6] Installing shell + apps..."
 install -d /usr/local/lib/osborne
 [ -f "$HERE/update.py" ] && install -m 755 "$HERE/update.py" /usr/local/lib/osborne/update.py
 rm -rf /usr/local/lib/osborne/osb; cp -r "$P/lib/osb" /usr/local/lib/osborne/osb
-for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store osb-setup; do
+for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store osb-setup osb-clip osb-capture osb-widgets; do
   sed 's#^sys.path.insert.*#sys.path.insert(0, "/usr/local/lib/osborne")#' "$P/bin/$b" > /usr/local/bin/$b; chmod 755 /usr/local/bin/$b; done
 install -m 755 "$P/bin/osb-launcher" /usr/local/bin/
 install -m 755 "$P/bin/osb-setup-session" /usr/local/bin/
 install -d /usr/local/sbin; install -m 755 "$P/sbin/osb-setup-apply" "$P/sbin/osb-data-setup" "$P/sbin/osb-unlock" /usr/local/sbin/
 install -m 755 "$P/bin/osb-shot" /usr/local/bin/
+cat > /usr/share/applications/osb-capture.desktop <<'DE'
+[Desktop Entry]
+Type=Application
+Name=Screenshot and Recording
+Comment=Take a screenshot or record the screen
+Exec=osb-capture
+Icon=applets-screenshooter
+Categories=Utility;
+DE
+cat > /usr/share/applications/osb-clip.desktop <<'DE'
+[Desktop Entry]
+Type=Application
+Name=Clipboard History
+Comment=Everything you copied lately (Super+V)
+Exec=osb-clip show
+Icon=edit-paste
+Categories=Utility;
+DE
 printf "QT_QPA_PLATFORMTHEME=gtk3\nGTK_THEME=\n" >/dev/null
 grep -q QT_QPA_PLATFORMTHEME /etc/environment 2>/dev/null || echo "QT_QPA_PLATFORMTHEME=gtk2" >> /etc/environment
 install -m 755 "$P/bin/osb-compositor" /usr/local/bin/
@@ -114,6 +132,16 @@ k='''
     <keybind key="A-S-Tab"><action name="Execute"><command>osb-switcher alttab prev</command></action></keybind>
     <keybind key="W-Tab"><action name="Execute"><command>osb-switcher overview</command></action></keybind>
     <keybind key="W-m"><action name="Execute"><command>osb-monitor</command></action></keybind>
+    <keybind key="W-v"><action name="Execute"><command>osb-clip show</command></action></keybind>
+    <keybind key="W-S-s"><action name="Execute"><command>osb-capture</command></action></keybind>
+    <keybind key="C-A-Left"><action name="GoToDesktop"><to>left</to><wrap>yes</wrap></action></keybind>
+    <keybind key="C-A-Right"><action name="GoToDesktop"><to>right</to><wrap>yes</wrap></action></keybind>
+    <keybind key="C-A-S-Left"><action name="SendToDesktop"><to>left</to><wrap>yes</wrap><follow>yes</follow></action></keybind>
+    <keybind key="C-A-S-Right"><action name="SendToDesktop"><to>right</to><wrap>yes</wrap><follow>yes</follow></action></keybind>
+    <keybind key="W-Left"><action name="UnmaximizeFull"/><action name="MaximizeVert"/><action name="MoveResizeTo"><x>0</x><y>current</y><width>50%</width><height>current</height></action></keybind>
+    <keybind key="W-Right"><action name="UnmaximizeFull"/><action name="MaximizeVert"/><action name="MoveResizeTo"><x>50%</x><y>current</y><width>50%</width><height>current</height></action></keybind>
+    <keybind key="W-Up"><action name="ToggleMaximize"/></keybind>
+    <keybind key="W-Down"><action name="UnmaximizeFull"/></keybind>
     <keybind key="XF86AudioRaiseVolume"><action name="Execute"><command>wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+</command></action></keybind>
     <keybind key="XF86AudioLowerVolume"><action name="Execute"><command>wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-</command></action></keybind>
     <keybind key="XF86AudioMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle</command></action></keybind>
