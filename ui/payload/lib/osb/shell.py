@@ -231,12 +231,64 @@ def item_label(item):
     if item in BUILTIN: return BUILTIN[item][4]
     ai = app_info(item); return ai.get_name() if ai else item
 
+# ---- running windows (for the dock)
+EXTRAS = []   # [(key, ai or None, label)] running apps that are not pinned
+_SKIP_CLS = ('rofi', 'dunst', 'picom', 'lxpolkit', 'polkit', 'xfce4-notifyd', 'conky', 'tint2', 'stalonetray')
+_APPMAP = {}
+def _build_appmap():
+    if _APPMAP: return
+    for ai in Gio.AppInfo.get_all():
+        try:
+            if not ai.should_show(): continue
+            did = (ai.get_id() or '').lower()
+            keys = [did[:-8] if did.endswith('.desktop') else did]
+            try: keys.append((ai.get_startup_wm_class() or '').lower())
+            except Exception: pass
+            ex = (ai.get_executable() or '').split('/')[-1].lower(); keys.append(ex)
+            keys.append((ai.get_name() or '').lower())
+            for k in keys:
+                if k and k not in _APPMAP: _APPMAP[k] = ai
+        except Exception: pass
+def match_app(cls, inst):
+    _build_appmap()
+    for k in (cls, inst, cls.replace('_', '-'), inst.replace('_', '-')):
+        if k in _APPMAP: return _APPMAP[k]
+    return None
+def list_windows():
+    out = sh_out("for w in $(xprop -root _NET_CLIENT_LIST 2>/dev/null | sed 's/.*# //; s/,//g'); do echo \"W $w\"; xprop -id $w WM_CLASS _NET_WM_STATE _NET_WM_WINDOW_TYPE _NET_WM_NAME 2>/dev/null; done", timeout=6)
+    res = []; cur = None
+    for ln in out.splitlines():
+        if ln.startswith('W '):
+            cur = dict(id=ln[2:].strip(), cls='', inst='', hidden=False, skip=False, title=''); res.append(cur); continue
+        if cur is None: continue
+        if ln.startswith('WM_CLASS'):
+            q = re.findall(r'"([^"]*)"', ln)
+            if len(q) >= 2: cur['inst'], cur['cls'] = q[0].lower(), q[1].lower()
+        elif ln.startswith('_NET_WM_STATE'):
+            cur['hidden'] = 'HIDDEN' in ln
+            if 'SKIP_TASKBAR' in ln: cur['skip'] = True
+        elif ln.startswith('_NET_WM_WINDOW_TYPE'):
+            if re.search(r'DOCK|DESKTOP|NOTIFICATION|MENU|SPLASH|TOOLTIP|POPUP|DROPDOWN|COMBO|UTILITY|DND', ln): cur['skip'] = True
+        elif ln.startswith('_NET_WM_NAME'):
+            q = re.findall(r'"(.*)"', ln); cur['title'] = q[0] if q else ''
+    return [w for w in res if w['cls'] and not w['skip'] and not w['cls'].startswith('osb') and w['cls'] not in _SKIP_CLS]
+def win_toggle(wins):
+    """Click on a running icon: restore if minimised, minimise if it is already in front, else bring to front."""
+    if not wins: return
+    try: act = sh_out('xdotool getactivewindow 2>/dev/null').strip()
+    except Exception: act = ''
+    ids = [w['id'] for w in wins]
+    if all(w['hidden'] for w in wins) or act not in ids:
+        for w in wins: subprocess.Popen(['xdotool', 'windowactivate', w['id']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        for w in wins: subprocess.Popen(['xdotool', 'windowminimize', w['id']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 class Dock(OsbWindow):
     def __init__(self, app):
         sw, sh = Gdk.Screen.get_default().get_width(), Gdk.Screen.get_default().get_height()
         cfg = self.cfg = load_dock(); k = DOCK_SIZES.get(cfg['size'], 1.0)
         items = [i for i in cfg['items'] if i in BUILTIN or (i.startswith('app:') and app_info(i))] or list(DOCK_DEFAULT['items'])
-        T = int(round(42 * k)); G = int(round(8 * k)); n = len(items); pad = 11
+        T = int(round(42 * k)); G = int(round(8 * k)); self.pinned_n = len(items); self.extras = list(EXTRAS); self.extra_wins = {}; self.pin_wins = {}; self.pin_dots = {}; n = len(items) + len(self.extras); pad = 11
         self.T = T; right = (px(13 + G + 42 * k) if cfg['trash'] else 0)
         cw = px(pad * 2 + n * (T + G) - G) + (px(8 + 1 + 8) + px(42 * k) if cfg['trash'] else 0); ch = px(18 + T)
         m = px(40); super().__init__(cw, ch, m, Gdk.WindowTypeHint.DOCK, 'osb-dock'); self.app = app
@@ -252,7 +304,10 @@ class Dock(OsbWindow):
                     dot.connect('draw', lambda w, cr: ((cr.arc(px(2.5), px(2.5), px(2.2), 0, 6.3), cr.set_source_rgba(*hex2rgb(pal('bar'))), cr.fill()) if w.on else None, False)[-1])
                     self.put(dot, x + px(T / 2.0) - px(2), px(9 + T + 3)); self.dots[cls] = dot
             else:
-                self.put(self.app_tile(app_info(it), T, it), x, px(9))
+                self.put(self.app_tile(app_info(it), T, it), x, px(9)); self.pin_dot(it, x, T)
+        for j, (key, ai, lab) in enumerate(self.extras):
+            x = px(pad) + (len(items) + j) * px(T + G)
+            self.put(self.run_tile(key, ai, lab, T), x, px(9)); self.pin_dot(key, x, T, extra=True)
         if cfg['trash']:
             sx = px(pad) + n * px(T + G) - px(G) + px(8)
             self.put(Box('rowline', max(1, px(1)), px(T * 0.8)), sx, px(9 + T * 0.1))
@@ -261,7 +316,7 @@ class Dock(OsbWindow):
                 rounded_rect(cr, 0, 0, px(T), px(T), px(14)); cr.set_source_rgba(*hex2rgb(pal('trash'))); cr.fill()
                 draw_icon(cr, 'trash', px(T * 0.21), px(T * 0.21), px(T * 0.57), pal('trashicon'), 1.7); return False
             t.connect('draw', dt); t.connect('button-press-event', lambda *a: launch('osb-files --trash')); self.put(t, sx + px(9), px(9))
-        GLib.timeout_add(5000, self.poll); self.poll()
+        GLib.timeout_add(2500, self.poll); self.poll()
     def item_menu(self, item, e):
         """Right-click menu of a dock icon."""
         m = new_menu(); self.app.menu_open = True; d = load_dock(); its = d['items']; i = its.index(item) if item in its else -1
@@ -284,16 +339,55 @@ class Dock(OsbWindow):
         m.append(Gtk.SeparatorMenuItem())
         it = Gtk.MenuItem(label=T('Dock settings…')); it.connect('activate', lambda w: launch(['osb-settings', 'customize'])); m.append(it)
         m.connect('hide', lambda *a: setattr(self.app, 'menu_open', False)); m.show_all(); m.popup_at_pointer(e)
+    def run_menu(self, key, ai, label, e):
+        """Right-click menu of a running (unpinned) app: pin it to the dock, or close it."""
+        m = new_menu(); self.app.menu_open = True
+        def pin():
+            d = load_dock(); it = 'app:' + ai.get_id()
+            if it not in d['items']: d['items'].append(it); save_json(DOCKFILE, d)
+        def close():
+            for w in self.extra_wins.get(key, []): subprocess.Popen(['xdotool', 'windowquit', w['id']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        def show():
+            win_toggle(self.extra_wins.get(key, []))
+        for lab, fn, ok in [('Show', show, True), ('Pin to dock', pin, ai is not None), ('Close', close, True)]:
+            it = Gtk.MenuItem(label=T(lab)); it.set_sensitive(ok); it.connect('activate', lambda w, f=fn: f()); m.append(it)
+        m.connect('hide', lambda *a: setattr(self.app, 'menu_open', False)); m.show_all(); m.popup_at_pointer(e)
+    def pin_dot(self, key, x, T, extra=False):
+        dot = Gtk.DrawingArea(); dot.set_size_request(px(5), px(5)); dot.on = extra
+        dot.connect('draw', lambda w, cr: ((cr.arc(px(2.5), px(2.5), px(2.2), 0, 6.3), cr.set_source_rgba(*hex2rgb(pal('bar'))), cr.fill()) if w.on else None, False)[-1])
+        self.put(dot, x + px(T / 2.0) - px(2), px(9 + T + 3)); self.pin_dots[key] = dot
     def poll(self):
         def work():
             res = {cls: bool(sh_out("xdotool search --class %s 2>/dev/null | head -1" % cls)) for cls in self.dots}
-            GLib.idle_add(self.apply_dots, res)
+            try: wins = list_windows()
+            except Exception: wins = []
+            GLib.idle_add(self.apply_poll, res, wins)
         threading.Thread(target=work, daemon=True).start(); return True
-    def apply_dots(self, res):
+    def apply_poll(self, res, wins):
         for cls, on in res.items():
             d = self.dots[cls]
             if d.on != on: d.on = on; d.queue_draw()
+        pinned = set(self.cfg['items']); pw = {}; ew = {}; labs = {}; ais = {}
+        for w in wins:
+            ai = match_app(w['cls'], w['inst'])
+            item = ('app:' + ai.get_id()) if ai else None
+            if item and item in pinned: pw.setdefault(item, []).append(w); continue
+            if any(BUILTIN[b][3] and BUILTIN[b][3] in (w['cls'], w['inst']) for b in BUILTIN): continue
+            key = ai.get_id() if ai else 'cls:' + w['cls']
+            ew.setdefault(key, []).append(w); ais[key] = ai; labs.setdefault(key, ai.get_name() if ai else (w['title'] or w['cls']))
+        self.pin_wins = pw; self.extra_wins = ew
+        ex = [e[0] for e in self.extras]
+        for item, d in self.pin_dots.items():
+            on = (item in ew) if item in ex else (item in pw)
+            if d.on != on: d.on = on; d.queue_draw()
+        new = [(k, ais[k], labs[k]) for k in ew]
+        if [e[0] for e in new] != [e[0] for e in self.extras]:
+            global EXTRAS
+            EXTRAS = new; self.app.rebuild_dock()
         return False
+    def run_tile(self, key, ai, lab, T=42):
+        d = self.app_tile(ai, T, None, key=key, label=lab)
+        return d
     def tile(self, ic, stops, fn, T=42, item=None):
         d = Gtk.DrawingArea(); sz = px(T); d.set_size_request(sz, sz); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         def draw(w, cr):
@@ -301,7 +395,7 @@ class Dock(OsbWindow):
             else: gradient_tile(cr, sz, sz, px(14), stops, 160)
             draw_icon(cr, ic, sz * 0.21, sz * 0.21, sz * 0.57, '#ffffff', 1.7); return False
         d.connect('draw', draw); d.connect('button-press-event', lambda w, e: (fn(), True)[-1] if e.button == 1 else (self.item_menu(item, e), True)[-1]); return d
-    def app_tile(self, ai, T=42, item=None):
+    def app_tile(self, ai, T=42, item=None, key=None, label=''):
         d = Gtk.DrawingArea(); sz = px(T); d.set_size_request(sz, sz); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         pb = [None]
         def load():
@@ -313,8 +407,21 @@ class Dock(OsbWindow):
         def draw(w, cr):
             rounded_rect(cr, 0, 0, sz, sz, px(14)); cr.set_source_rgba(*hex2rgb(pal('trash'))); cr.fill()
             if pb[0]: Gdk.cairo_set_source_pixbuf(cr, pb[0], (sz - pb[0].get_width()) / 2.0, (sz - pb[0].get_height()) / 2.0); cr.paint()
+            else:
+                cr.select_font_face('Sans', 0, 1); cr.set_font_size(sz * 0.46); cr.set_source_rgba(*hex2rgb(pal('text')))
+                ch = (label or '?')[:1].upper(); ext = cr.text_extents(ch); cr.move_to((sz - ext.width) / 2.0 - ext.x_bearing, (sz + ext.height) / 2.0); cr.show_text(ch)
             return False
-        d.connect('draw', draw); d.connect('button-press-event', lambda w, e: (ai.launch([], None), True)[-1] if e.button == 1 else (self.item_menu(item, e), True)[-1]); return d
+        def click(w, e):
+            if key is not None:
+                if e.button == 1: win_toggle(self.extra_wins.get(key, []))
+                else: self.run_menu(key, ai, label, e)
+            elif e.button == 1:
+                ws = self.pin_wins.get(item)
+                if ws: win_toggle(ws)
+                elif ai: ai.launch([], None)
+            else: self.item_menu(item, e)
+            return True
+        d.connect('draw', draw); d.connect('button-press-event', click); return d
 
 # ---------------------------------------------------------------- quick settings
 QS_DY = 55
