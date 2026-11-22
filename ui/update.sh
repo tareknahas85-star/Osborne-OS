@@ -2,6 +2,8 @@
 # Osborne OS - update the desktop UI straight from GitHub.
 #   curl -fsSL https://raw.githubusercontent.com/tareknahas85-star/Osborne-OS/main/ui/update.sh | sudo bash
 set -e
+exec > >(tee -a /var/log/osborne-update.log) 2>&1
+echo "=== update $(date) ==="
 [ "$(id -u)" = 0 ] || { echo "Run with sudo:  curl -fsSL <this url> | sudo bash"; exit 1; }
 BRANCH="${OSB_BRANCH:-main}"
 SHA="${OSB_SHA:-}"

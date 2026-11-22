@@ -447,6 +447,7 @@ class SettingsWin(OsbWindow):
                 for ln in p.stdout:
                     ln = ln.strip()
                     if ln:
+                        self.upd_tail = ln[:90]
                         m = re.match(r'\[(\d)/6\]', ln)
                         def ui(t=ln[:90], n=int(m.group(1)) if m else 0):
                             self.upd_last = time.time()
@@ -467,7 +468,7 @@ class SettingsWin(OsbWindow):
             try: self.upd_cur = open('/usr/local/lib/osborne/version').read().strip()
             except Exception: pass
         else:
-            self.upd_status.set_text('The update did not finish. Check the internet connection and try again.'); self.upd_btn.set_sensitive(True)
+            self.upd_status.set_text('The update did not finish (code %s). Last message: %s' % (rc, getattr(self, 'upd_tail', '-'))); self.upd_btn.set_sensitive(True)
 
 def main():
     start = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in [k for n, i, k in CATS] else 'wifi'

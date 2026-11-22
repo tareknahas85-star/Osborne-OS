@@ -6,16 +6,16 @@ set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"; P="$HERE/payload"
 export DEBIAN_FRONTEND=noninteractive
 echo "[1/6] Packages (connectivity, sound, UI runtime)..."
-apt-get update -qq
+apt-get update -qq || echo "  (apt update failed; continuing with installed packages)"
 apt-get install -y -qq --no-install-recommends \
-  network-manager wpasupplicant iw rfkill wireless-regdb crda 2>/dev/null || apt-get install -y -qq --no-install-recommends network-manager wpasupplicant iw rfkill wireless-regdb
+  network-manager wpasupplicant iw rfkill wireless-regdb crda 2>/dev/null || apt-get install -y -qq --no-install-recommends network-manager wpasupplicant iw rfkill wireless-regdb || echo "  (network packages skipped)"
 apt-get install -y -qq --no-install-recommends \
   bluez blueman libspa-0.2-bluetooth pipewire pipewire-pulse wireplumber pipewire-alsa alsa-utils pavucontrol \
   brightnessctl playerctl xdotool x11-utils picom rofi lxterminal xdg-utils \
   python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdkpixbuf-2.0 librsvg2-common fonts-inter \
   papirus-icon-theme network-manager-gnome lxpolkit dunst libnotify-bin qt5-gtk-platformtheme fonts-jetbrains-mono adwaita-icon-theme gnome-themes-extra libglib2.0-bin \
   python3-pam scrot xclip xss-lock x11-xserver-utils \
-  xcape fonts-noto-core sound-theme-freedesktop pulseaudio-utils xserver-xorg-input-libinput curl ca-certificates
+  xcape fonts-noto-core sound-theme-freedesktop pulseaudio-utils xserver-xorg-input-libinput curl ca-certificates || echo "  (some packages could not be installed; continuing)"
 echo "[2/6] Installing shell + apps..."
 install -d /usr/local/lib/osborne
 rm -rf /usr/local/lib/osborne/osb; cp -r "$P/lib/osb" /usr/local/lib/osborne/osb
