@@ -26,7 +26,10 @@ def _scale():
     if os.environ.get('OSB_SCALE'):
         return float(os.environ['OSB_SCALE'])
     scr = Gdk.Screen.get_default()
-    return max(0.6, min(scr.get_width() / 1536.0, scr.get_height() / 769.0))
+    base = max(0.6, min(scr.get_width() / 1536.0, scr.get_height() / 769.0))
+    try: base *= max(0.6, min(2.0, float(open(os.path.join(os.path.expanduser('~/.config/osborne'), 'scale')).read().strip())))
+    except Exception: pass
+    return base
 S = _scale()
 def px(n): return int(round(n * S))
 def pxf(n): return n * S
@@ -121,6 +124,7 @@ window.osb {{ background: transparent; }}
 .qstile {{ background-color:{p['tile']}; border-radius:{r(16)}; }}
 .qsicon {{ background-image: linear-gradient(180deg,{ACC['top']},{ACC['base']}); border-radius:{r(10)}; }}
 .qsrow {{ background-color:{p['row']}; border-radius:{r(14)}; }}
+textview.osblog, textview.osblog text {{ background-color:{p['row']}; color:{p['muted']}; font-family:monospace; font-size:{r(11)}; }}
 .seg {{ background-color:{p['seg']}; border-radius:{r(10)}; }}
 .segact {{ background-color:{p['pill']}; border-radius:{r(8)}; }}
 .player {{ background-image: linear-gradient(100deg,#2a2545 0%,#1e2f4f 100%); border-radius:{r(16)}; }}
@@ -225,8 +229,15 @@ def draw_icon(cr, name, x, y, size, color, stroke=1.7):
 
 # ------------------------------------------------------------------ text
 _texts = []
+from .i18n import tr as _tr, LANG as _LANG, _LOG as _ILOG
+if _LANG == 'ar' or _ILOG:
+    _orig_set_text = Gtk.Label.set_text
+    Gtk.Label.set_text = lambda self, t: _orig_set_text(self, _tr(t))
+    _orig_append = Gtk.ComboBoxText.append_text
+    Gtk.ComboBoxText.append_text = lambda self, t: _orig_append(self, _tr(t))
 def make_label(text, size, weight='normal', color='text', xalign=0.0, spacing=0, w=None, h=None, family=FONT):
-    l = Gtk.Label(label=text); l.set_xalign(xalign); l.set_yalign(0.5)
+    from .i18n import tr
+    l = Gtk.Label(label=tr(text)); l.set_xalign(xalign); l.set_yalign(0.5)
     l.set_single_line_mode(True); l.set_ellipsize(Pango.EllipsizeMode.END)
     wsz = int(w) if w else -1; hsz = int(h) if h else int(size * 1.5)
     l.set_size_request(wsz, hsz)

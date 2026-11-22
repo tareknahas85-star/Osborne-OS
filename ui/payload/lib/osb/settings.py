@@ -2,6 +2,7 @@
 import os, sys, re, shutil, subprocess, threading, platform, socket, getpass, time, json
 from .common import *
 from .common import _texts
+from . import sysconf
 
 def sh(cmd, timeout=6):
     try: return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout).stdout.strip()
@@ -14,7 +15,7 @@ def bg(cmd, cb=None, timeout=30):
     threading.Thread(target=w, daemon=True).start()
 
 CATS = [('Profile', 'user', 'profile'), ('Wi-Fi', 'wifi', 'wifi'), ('Bluetooth', 'bluetooth', 'bluetooth'), ('Sound', 'speaker', 'sound'), ('Display', 'monitor', 'display'),
-        ('Appearance', 'palette', 'appearance'), ('Customize', 'grid', 'customize'), ('Keyboard', 'keyboard', 'keyboard'), ('Date & Time', 'clock', 'time'),
+        ('Appearance', 'palette', 'appearance'), ('Customize', 'grid', 'customize'), ('Keyboard', 'keyboard', 'keyboard'), ('Devices', 'gear', 'devices'), ('Power & Lock', 'battery', 'power'), ('Date & Time', 'clock', 'time'),
         ('Storage', 'disk', 'storage'), ('System Info', 'info', 'about'), ('System Update', 'download', 'update'), ('About', 'star', 'creator')]
 CONF = os.path.expanduser('~/.config/osborne')
 
@@ -27,11 +28,11 @@ class SettingsWin(OsbWindow):
         self.enable_escape(); self.put(Box('win', px(self.W), px(self.H)), 0, 0); self.put(Box('sidebar', px(220), px(self.H)), 0, 0)
         traffic_lights(self, 16, 25)
         self.put(make_label('Settings', 15, 'bold', 'text', w=px(150), h=px(22)), px(22), px(58))
-        self.pill = Box('pill', px(192), px(38)); self.put(self.pill, px(14), px(100)); self.items = {}
+        self.pill = Box('pill', px(192), px(32)); self.put(self.pill, px(14), px(96)); self.items = {}
         for i, (name, ic, key) in enumerate(CATS):
-            y = 100 + i * 38; icn = Icon(ic, px(18), 'text', 1.5); lab = make_label(name, 11.5, 'medium', 'text', w=px(140), h=px(18))
-            self.put(icn, px(26), px(y + 10)); self.put(lab, px(55), px(y + 10))
-            ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(192), px(38)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            y = 96 + i * 32; icn = Icon(ic, px(17), 'text', 1.5); lab = make_label(name, 11.5, 'medium', 'text', w=px(140), h=px(18))
+            self.put(icn, px(26), px(y + 7)); self.put(lab, px(55), px(y + 7))
+            ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(192), px(32)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             ev.connect('button-press-event', lambda w, e, k=key: (self.show(k), True)[-1]); self.put(ev, px(14), px(y)); self.items[key] = (icn, lab, y)
         self.sc = Gtk.ScrolledWindow(); self.sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC); self.sc.get_style_context().add_class('osbscroll')
         self.sc.set_size_request(px(self.W - 220 - 20), px(self.H - 100)); self.put(self.sc, px(230), px(88))
@@ -67,7 +68,8 @@ class SettingsWin(OsbWindow):
             ev.connect('button-press-event', lambda w, e: (click(), True)[-1]); P.put(ev, 0, px(self.y))
         self.y += h + 8
     def btn(self, text, cb, primary=False):
-        b = Gtk.Button(label=text); b.connect('clicked', lambda *a: cb())
+        from .i18n import tr
+        b = Gtk.Button(label=tr(text)); b.connect('clicked', lambda *a: cb())
         if primary: b.get_style_context().add_class('suggested-action')
         return b
     def note(self, t):
@@ -166,7 +168,25 @@ class SettingsWin(OsbWindow):
             if cur and cur.group(1) in seen: cb.set_active(seen.index(cur.group(1)))
             cb.connect('changed', lambda c: subprocess.Popen(['xrandr', '--output', name, '--mode', c.get_active_text()]))
             self.row('Resolution', name, cb, rw=170)
+        self.sect('Interface size')
+        cur = sysconf.get_ui_scale(); idx = min(range(len(sysconf.SCALES)), key=lambda i: abs(sysconf.SCALES[i][1] - cur))
+        cb = Gtk.ComboBoxText(); [cb.append_text(n) for n, v in sysconf.SCALES]; cb.set_active(idx)
+        def setsc(c):
+            sysconf.set_ui_scale(sysconf.SCALES[c.get_active()][1]); self.note_scale.set_text('Saved. Press "Restart desktop" to apply.'); self.rs_btn.show()
+        cb.connect('changed', setsc); self.row('Size of text and buttons', 'Make the whole interface smaller or bigger', cb, rw=150)
+        self.note_scale = make_label('', 10, 'normal', 'primary', w=px(400), h=px(16)); self.page.put(self.note_scale, px(6), px(self.y - 4))
+        self.rs_btn = self.btn('Restart desktop', self.restart_desktop); self.rs_btn.set_size_request(px(150), px(32)); self.rs_btn.set_no_show_all(True); self.page.put(self.rs_btn, px(300), px(self.y - 10)); self.y += 30
+        self.sect('Night light')
+        nl = sysconf.get_night(); modes = [('off', 'Off'), ('auto', 'Evening to morning'), ('on', 'Always on')]
+        cb2 = Gtk.ComboBoxText(); [cb2.append_text(t) for k, t in modes]; cb2.set_active([k for k, t in modes].index(nl['mode']) if nl['mode'] in [k for k, t in modes] else 0)
+        def setnl(c): nl['mode'] = modes[c.get_active()][0]; sysconf.set_night(nl); sysconf.apply_night()
+        cb2.connect('changed', setnl); self.row('Night light', 'Warmer colours to rest your eyes (8 pm to 6 am)', cb2, rw=170)
+        def settemp(x): nl['temp'] = int(6500 - x * 3000); sysconf.set_night(nl)
+        self.row('Warmth', 'Move to the right for warmer colours', Slider(px(260), (6500 - nl['temp']) / 3000.0, settemp, lambda x: sysconf.apply_night()), rw=270)
         self.note('Tip: a lower resolution makes everything bigger on small screens.')
+    def restart_desktop(self):
+        subprocess.Popen(['bash', '-c', 'pkill -f "python.*osb-shell"; pkill -f "python.*osb-files"; sleep 1; setsid osb-shell >/dev/null 2>&1 & sleep 2; setsid osb-files >/dev/null 2>&1 &'], start_new_session=True)
+        GLib.timeout_add(600, lambda: (self.destroy(), False)[-1])
     def p_appearance(self):
         self.sect('Theme', 0)
         for i, (mode, label, sub) in enumerate((('light', 'Light', 'Bright and clean'), ('dark', 'Dark', 'Easy on the eyes'))):
@@ -277,12 +297,42 @@ class SettingsWin(OsbWindow):
         def chosen(l, r):
             dd = load_dock(); dd['items'].append(r.key); save_json(DOCKFILE, dd); d.destroy(); self.show('customize', True)
         lb.connect('row-activated', chosen); d.add_button('Cancel', Gtk.ResponseType.CANCEL); d.show_all(); d.run(); d.destroy()
+    def p_devices(self):
+        tp = sysconf.get_tp(); self.sect('Touchpad', 0)
+        def mk(key):
+            def f(on): tp[key] = on; sysconf.set_tp(tp); threading.Thread(target=sysconf.apply_touchpad, daemon=True).start()
+            return f
+        self.row('Tap to click', 'Touch the pad once instead of pressing it', Switch(tp['tap'], mk('tap')), rw=42)
+        self.row('Natural scrolling', 'Content follows your fingers, like on a phone', Switch(tp['natural'], mk('natural')), rw=42)
+        def spd(x): tp['speed'] = round(x * 2 - 1, 2); sysconf.set_tp(tp)
+        self.row('Pointer speed', 'How fast the pointer moves', Slider(px(260), (tp['speed'] + 1) / 2.0, spd, lambda x: sysconf.apply_touchpad()), rw=270)
+        self.sect('Printers')
+        have = bool(shutil.which('system-config-printer'))
+        self.row('Printers', 'Add and manage printers' if have else 'The printer tool is installed with the next system update', self.btn('Open', lambda: subprocess.Popen(['system-config-printer'])) if have else None, rw=80)
+    def p_power(self):
+        pw = sysconf.get_power(); opts = [(0, 'Never'), (1, '1 minute'), (2, '2 minutes'), (5, '5 minutes'), (10, '10 minutes'), (15, '15 minutes'), (30, '30 minutes'), (60, '1 hour')]
+        def combo(key):
+            cb = Gtk.ComboBoxText(); [cb.append_text(t) for v, t in opts]
+            vals = [v for v, t in opts]; cb.set_active(vals.index(pw[key]) if pw[key] in vals else 4)
+            def ch(c): pw[key] = opts[c.get_active()][0]; sysconf.set_power(pw); threading.Thread(target=sysconf.apply_power, daemon=True).start()
+            cb.connect('changed', ch); return cb
+        self.sect('Screen lock', 0)
+        self.row('Lock the screen after', 'Ask for the password when you are away', combo('lock'), rw=150)
+        self.row('Turn the screen off after', 'Save battery when you are not using the device', combo('off'), rw=150)
+        self.note('The screen is locked automatically after the first time above.')
+        self.sect('Power')
+        self.row('Lock now', 'Lock the screen right away (Super + L)', self.btn('Lock', lambda: subprocess.Popen(['osb-lock'])), rw=80)
+        self.row('Sleep', 'Put the device to sleep', self.btn('Sleep', lambda: subprocess.Popen(['systemctl', 'suspend'])), rw=80)
     def p_keyboard(self):
         cur = (re.search(r'layout:\s+(\S+)', sh('setxkbmap -query')) or [0, 'us'])[1]
         try: cur = re.search(r'-layout (\S+)', open(os.path.join(CONF, 'keyboard.sh')).read()).group(1)
         except Exception: pass
         have = set(('ara' if c == 'ar' else c) for c in cur.split(','))
-        self.sect('Layouts', 0); self.note('Press Alt + Shift to switch between the layouts you enable.')
+        self.sect('Language', 0)
+        cbl = Gtk.ComboBoxText(); [cbl.append_text(n) for k, n in sysconf.LANGS]; cbl.set_active([k for k, n in sysconf.LANGS].index(sysconf.get_lang()))
+        def setl(c): sysconf.set_lang(sysconf.LANGS[c.get_active()][0]); self.notify('Language', 'Saved. Restart the desktop to apply.')
+        cbl.connect('changed', setl); self.row('Interface language', 'Language of menus, buttons and settings', cbl, rw=170)
+        self.sect('Layouts'); self.note('Press Alt + Shift to switch between the layouts you enable.')
         def apply():
             ls = [l for l in ('us', 'ara') if l in self.have] or ['us']; self.have = set(ls)
             os.makedirs(CONF, exist_ok=True); cmd = 'setxkbmap -layout %s -option grp:alt_shift_toggle' % ','.join(ls); open(os.path.join(CONF, 'keyboard.sh'), 'w').write('#!/bin/sh\n' + cmd + '\n'); subprocess.Popen(cmd + '; sleep 2; ' + cmd, shell=True)
@@ -304,8 +354,20 @@ class SettingsWin(OsbWindow):
             p = os.path.join(CONF, '12h')
             (open(p, 'w').close() if not on else (os.path.exists(p) and os.remove(p)))
         self.row('24-hour clock', 'Show time as 14:30 instead of 2:30 PM', Switch(f24, t12), rw=42)
+    def setup_private_storage(self):
+        d = Gtk.Dialog(title='Private storage', transient_for=self, modal=True); box = d.get_content_area(); box.set_spacing(10); box.set_border_width(18)
+        lab = Gtk.Label(label='Type your account password. It will also unlock your private files.'); lab.set_xalign(0); box.add(lab)
+        e = Gtk.Entry(); e.set_visibility(False); e.set_size_request(300, -1); box.add(e); msg = Gtk.Label(label=''); msg.set_xalign(0); box.add(msg)
+        d.add_button('Cancel', Gtk.ResponseType.CANCEL); ok = d.add_button('Set up', Gtk.ResponseType.OK); ok.get_style_context().add_class('suggested-action'); d.show_all()
+        if d.run() == Gtk.ResponseType.OK and e.get_text():
+            pw = e.get_text(); msg.set_text('Working, this takes a minute…')
+            r = subprocess.run(['sudo', '-S', '-k', '-p', '', '/usr/local/sbin/osb-data-setup', getpass.getuser()], input='%s\n%s\n' % (pw, pw), capture_output=True, text=True)
+            self.notify('Storage', 'Private storage is ready' if r.returncode == 0 else ((r.stdout.strip().splitlines() or ['Could not set up the storage'])[-1]))
+        d.destroy(); self.show('storage', True)
     def p_storage(self):
         seen = set()
+        if os.path.exists('/var/lib/osborne/setup-done') and not os.path.exists('/var/lib/osborne/auto-unlock'):
+            self.row('Private storage', 'Not set up yet. Your private files get their own locked area on the card.', self.btn('Set up…', self.setup_private_storage, True), rw=100)
         for ln in sh('df -h --output=source,size,used,avail,pcent,target -x tmpfs -x devtmpfs -x squashfs -x overlay').splitlines()[1:]:
             p = ln.split()
             if len(p) < 6 or p[0] in seen or p[5].startswith('/boot') and False: continue
@@ -320,8 +382,43 @@ class SettingsWin(OsbWindow):
         for t, v in (('Device name', socket.gethostname()), ('Osborne OS version', 'v' + __import__('osb.version', fromlist=['VERSION']).VERSION), ('Operating system', 'Osborne OS  ·  ' + os_name), ('Kernel', platform.release()), ('Processor', cpu.strip()),
                      ('Memory', '%.1f GB' % (int(mem.group(1)) / 1048576.0) if mem else '—'), ('User', getpass.getuser())):
             self.row(t, v, None, h=54)
-        self.row('Password', 'Change the password for this user', self.btn('Change…', lambda: subprocess.Popen(['lxterminal', '-e', 'passwd'])), rw=100)
+        self.row('Password', 'Change the password for this user', self.btn('Change…', self.change_password), rw=100)
+        self.row('Reset desktop settings', 'Dock, top bar, colours and sizes go back to the defaults. Your files stay.', self.btn('Reset…', self.reset_settings), rw=100)
 
+    def change_password(self):
+        d = Gtk.Dialog(title='Change password', transient_for=self, modal=True); box = d.get_content_area(); box.set_spacing(10); box.set_border_width(18)
+        ents = []
+        for ph in ('Current password', 'New password', 'New password again'):
+            e = Gtk.Entry(); e.set_visibility(False); e.set_placeholder_text(ph); e.set_size_request(300, -1); box.add(e); ents.append(e)
+        msg = Gtk.Label(label='Any password is fine, even a short one.'); msg.set_xalign(0); box.add(msg)
+        d.add_button('Cancel', Gtk.ResponseType.CANCEL); ok = d.add_button('Change', Gtk.ResponseType.OK); ok.get_style_context().add_class('suggested-action'); d.show_all()
+        while d.run() == Gtk.ResponseType.OK:
+            cur, new, new2 = [e.get_text() for e in ents]
+            if not new: msg.set_text('Type a new password.'); continue
+            if new != new2: msg.set_text('The two new passwords are different.'); continue
+            if ':' in new or '\n' in new: msg.set_text('Please avoid the ":" character.'); continue
+            r = subprocess.run(['sudo', '-S', '-k', '-p', '', 'chpasswd'], input='%s\n%s:%s\n' % (cur, getpass.getuser(), new), capture_output=True, text=True)
+            if r.returncode == 0:
+                if os.path.exists('/var/lib/osborne/auto-unlock'):
+                    try:
+                        import tempfile
+                        with tempfile.NamedTemporaryFile('w', delete=False) as a, tempfile.NamedTemporaryFile('w', delete=False) as b: a.write(cur); b.write(new)
+                        subprocess.run(['sudo', '-S', '-k', '-p', '', 'cryptsetup', 'luksChangeKey', '/dev/disk/by-partlabel/data', '--key-file', a.name, '--new-keyfile', b.name, '--batch-mode'], input=cur + '\n', capture_output=True, text=True)
+                        os.remove(a.name); os.remove(b.name)
+                    except Exception: pass
+                self.notify('Password', 'Password changed'); break
+            msg.set_text('The current password is not right.')
+        d.destroy()
+    def reset_settings(self):
+        d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.NONE, text='Reset desktop settings?')
+        d.format_secondary_text('The dock, top bar, colours, sizes, night light, touchpad and power settings go back to the defaults. Your files, name and picture are kept.')
+        d.add_button('Cancel', Gtk.ResponseType.CANCEL); d.add_button('Reset', Gtk.ResponseType.OK)
+        if d.run() == Gtk.ResponseType.OK:
+            for f in ('dock.json', 'topbar.json', 'accent', 'scale', 'nightlight.json', 'touchpad.json', 'power.json'):
+                try: os.remove(os.path.join(CONF, f))
+                except Exception: pass
+            self.notify('Settings', 'Reset. Restart the desktop to apply.')
+        d.destroy()
     # ---- profile
     def p_profile(self):
         P = self.page; name = display_name(); big = Avatar(px(72)); P.put(big, px(6), px(self.y + 4))
@@ -408,12 +505,38 @@ class SettingsWin(OsbWindow):
         self.row('Installed version', 'v%s%s' % (VERSION, ('  \u00b7  build ' + cur[:7]) if cur else ''), None)
         self.upd_status = make_label('Checking for updates…', 11, 'semibold', 'text', w=self.PWd, h=px(20)); self.page.put(self.upd_status, px(6), px(self.y)); self.y += 30
         self.upd_log = make_label('', 9, 'normal', 'muted', w=self.PWd, h=px(16)); self.page.put(self.upd_log, px(6), px(self.y)); self.y += 26
-        self.upd_bar = PulseBar(self.PWd - px(16)); self.upd_bar.set_no_show_all(True); self.page.put(self.upd_bar, px(6), px(self.y)); self.y += 22
+        self.upd_bar = PulseBar(self.PWd - px(60)); self.upd_bar.set_no_show_all(True); self.page.put(self.upd_bar, px(6), px(self.y))
+        self.upd_arrow = Gtk.Button(label='\u25B8 Details'); self.upd_arrow.connect('clicked', lambda *a: self.toggle_details()); self.upd_arrow.set_size_request(px(86), px(26)); self.page.put(self.upd_arrow, self.PWd - px(96), px(self.y - 6)); self.y += 22
         self.upd_btn = self.btn('Update now', self.do_update, True); self.upd_btn.set_size_request(px(140), px(36)); self.upd_btn.set_sensitive(False); self.page.put(self.upd_btn, px(4), px(self.y))
         self.chk_btn = self.btn('Check again', lambda: self.check_update()); self.chk_btn.set_size_request(px(120), px(36)); self.page.put(self.chk_btn, px(156), px(self.y)); self.y += 56
-        self.out_btn = self.btn('Log out now', lambda: subprocess.Popen(['openbox', '--exit'])); self.out_btn.set_size_request(px(140), px(36)); self.out_btn.set_no_show_all(True); self.page.put(self.out_btn, px(4), px(self.y)); self.y += 50
+        self.out_btn = self.btn('Restart desktop', lambda: self.restart_shell()); self.out_btn.set_size_request(px(160), px(36)); self.out_btn.set_no_show_all(True); self.page.put(self.out_btn, px(290), px(self.y - 56)); self.y += 0
+        self.det_open = False; self.det_h = px(230)
+        sc = Gtk.ScrolledWindow(); sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC); sc.set_size_request(self.PWd - px(12), self.det_h)
+        tv = Gtk.TextView(); tv.set_editable(False); tv.set_cursor_visible(False); tv.set_monospace(True); tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR); tv.set_left_margin(10); tv.set_right_margin(10); tv.set_top_margin(8); tv.get_style_context().add_class('osblog')
+        sc.add(tv); sc.set_no_show_all(True); self.det_sc = sc; self.det_tv = tv; self.page.put(sc, px(6), px(self.y)); self.y += 230 + 8
+        if not hasattr(self, 'upd_lines'): self.upd_lines = []
         self.note('Needs an internet connection. Your files and settings are kept.')
         self.check_update()
+    def restart_shell(self):
+        subprocess.Popen(['bash', '-c', 'pkill -f "python.*osb-shell"; sleep 1; setsid osb-shell >/dev/null 2>&1 &'], start_new_session=True)
+        self.out_btn.set_sensitive(False); self.upd_status.set_text('Restarting the desktop…')
+    def toggle_details(self, force=None):
+        self.det_open = (not self.det_open) if force is None else force
+        if self.det_open:
+            self.det_sc.show(); self.upd_arrow.set_label('\u25BE Details')
+            if not self.upd_lines:
+                try: self.upd_lines = ['(previous update log)'] + open('/var/log/osborne-update.log', errors='replace').read().splitlines()[-60:]
+                except Exception: self.upd_lines = ['No update has run yet.']
+            self.det_tv.get_buffer().set_text('\n'.join(self.upd_lines)); self.det_scroll()
+        else: self.det_sc.hide(); self.upd_arrow.set_label('\u25B8 Details')
+    def det_scroll(self):
+        def go():
+            adj = self.det_sc.get_vadjustment(); adj.set_value(adj.get_upper() - adj.get_page_size()); return False
+        GLib.idle_add(go)
+    def det_add(self, ln):
+        self.upd_lines.append(ln); self.upd_lines = self.upd_lines[-400:]
+        if self.det_open and self.det_sc.get_parent() is not None:
+            b = self.det_tv.get_buffer(); b.insert(b.get_end_iter(), ln + '\n'); self.det_scroll()
     def check_update(self):
         if self.upd_busy: return
         self.upd_status.set_text('Checking for updates…'); self.upd_btn.set_sensitive(False)
@@ -443,11 +566,13 @@ class SettingsWin(OsbWindow):
         self.timers.append(GLib.timeout_add_seconds(1, tick))
         def work():
             try:
-                p = subprocess.Popen(['pkexec', 'bash', '-c', 'curl -fsSL %s | OSB_SHA=%s bash' % (self.UPD_URL, getattr(self, 'latest', '') or '')], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                cmd = 'set -o pipefail; T=$(mktemp); curl -fsSL --retry 3 --connect-timeout 20 "%s" -o "$T" || { echo "ERROR: could not download the update script (code $?)"; exit 20; }; grep -q "Osborne OS" "$T" || { echo "ERROR: the downloaded update script is invalid"; exit 21; }; OSB_SHA=%s bash "$T"' % (self.UPD_URL, getattr(self, 'latest', '') or '')
+                p = subprocess.Popen(['pkexec', 'bash', '-c', cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                GLib.idle_add(self.det_add, '$ update started')
                 for ln in p.stdout:
                     ln = ln.strip()
                     if ln:
-                        self.upd_tail = ln[:90]
+                        self.upd_tail = ln[:90]; GLib.idle_add(self.det_add, ln)
                         m = re.match(r'\[(\d)/6\]', ln)
                         def ui(t=ln[:90], n=int(m.group(1)) if m else 0):
                             self.upd_last = time.time()
@@ -464,10 +589,11 @@ class SettingsWin(OsbWindow):
         self.upd_bar.stop(); self.upd_bar.set_fraction(1.0 if rc == 0 else 0.0)
         self.chk_btn.set_sensitive(True)
         if rc == 0:
-            self.upd_status.set_text('Update finished. Log out and back in to use the new version.'); self.upd_log.set_text(''); self.out_btn.show()
+            self.upd_status.set_text('Update finished. Press "Restart desktop" to load the new version.'); self.upd_log.set_text(''); self.out_btn.show()
             try: self.upd_cur = open('/usr/local/lib/osborne/version').read().strip()
             except Exception: pass
         else:
+            self.det_add('$ update failed (exit code %s)' % rc); self.toggle_details(True)
             self.upd_status.set_text('The update did not finish (code %s). Last message: %s' % (rc, getattr(self, 'upd_tail', '-'))); self.upd_btn.set_sensitive(True)
 
 def main():

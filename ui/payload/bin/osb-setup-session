@@ -1,0 +1,18 @@
+#!/bin/bash
+# X session used only on the very first boot: runs the setup wizard.
+export HOME="${HOME:-/home/osbsetup}"
+mkdir -p "$HOME/.config/osborne"; echo light > "$HOME/.config/osborne/mode"
+setxkbmap -layout us,ara -option grp:alt_shift_toggle 2>/dev/null
+osb-apply-theme light >/dev/null 2>&1
+openbox >/dev/null 2>&1 &
+osb-compositor >/dev/null 2>&1 &
+lxpolkit >/dev/null 2>&1 &
+sleep 1
+for i in 1 2 3; do
+  osb-setup && break
+  [ -f /var/lib/osborne/setup-done ] && break
+  sleep 2
+done
+# if the wizard keeps failing, give a terminal so the device is never stuck on a blank screen
+[ -f /var/lib/osborne/setup-done ] || exec lxterminal -e bash -c 'echo "Osborne setup could not start. Run:  sudo /usr/local/sbin/osb-setup-apply  or restart the device."; exec bash'
+sleep infinity

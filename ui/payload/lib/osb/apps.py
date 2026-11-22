@@ -2,7 +2,7 @@
 import os, sys, subprocess
 from .common import *
 
-HIDE = {'app center', 'snap store', 'tint2', 'tint2 settings', 'advanced network configuration', 'customize look and feel', 'desktop preferences', 'file roller', 'mousepad', 'text editor settings', 'text editor', 'file manager pcmanfm', 'file manager', 'pulseaudio volume control', 'bluetooth manager', 'bluetooth adapters', 'wi-fi', 'firefox web browser', 'firefox', 'avahi ssh server browser', 'avahi vnc server browser', 'picom', 'openbox configuration manager', 'vim', 'rofi', 'rofi theme selector', 'avahi zeroconf browser', 'bulk rename', 'lxappearance customize look and feel', 'uxterm', 'xterm'}
+HIDE = {'app center', 'snap store', 'tint2', 'tint2 settings', 'advanced network configuration', 'customize look and feel', 'desktop preferences', 'file roller', 'text editor settings', 'redshift', 'redshift gtk', 'cups', 'ufw', 'file manager pcmanfm', 'file manager', 'pulseaudio volume control', 'bluetooth manager', 'bluetooth adapters', 'wi-fi', 'firefox web browser', 'firefox', 'avahi ssh server browser', 'avahi vnc server browser', 'picom', 'openbox configuration manager', 'vim', 'rofi', 'rofi theme selector', 'avahi zeroconf browser', 'bulk rename', 'lxappearance customize look and feel', 'uxterm', 'xterm'}
 
 class AppDrawer(OsbWindow):
     def __init__(self):

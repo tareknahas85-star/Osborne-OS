@@ -218,10 +218,14 @@ class Dock(OsbWindow):
         d.connect('draw', draw); d.connect('button-press-event', lambda *a: ai.launch([], None)); return d
 
 # ---------------------------------------------------------------- quick settings
+QS_DY = 55
 class QuickSettings(OsbWindow):
+    def put(self, w, x, y):
+        if getattr(self, '_shift', False) and y >= px(110): y += px(QS_DY)
+        return super().put(w, x, y)
     def __init__(self, app):
         sw = Gdk.Screen.get_default().get_width()
-        cw, ch = px(280), px(342); m = px(50)
+        cw, ch = px(280), px(342 + QS_DY); m = px(50); self._shift = False
         super().__init__(cw, ch, m, None, 'osb-quicksettings'); self.app = app
         self.set_type_hint(Gdk.WindowTypeHint.UTILITY); self.set_keep_above(True)
         self.move(sw - px(95) - cw - m, px(54) - m)
@@ -246,6 +250,10 @@ class QuickSettings(OsbWindow):
         self.wifi_sub = make_label('', 8, 'normal', 'muted', w=px(70), h=px(12)); self.bt_sub = make_label('', 8, 'normal', 'muted', w=px(70), h=px(12))
         self.tile(18, 65, 119, 'wifi', 'Wi-Fi', self.wifi_sub, app.toggle_wifi, app.wifi_menu)
         self.tile(145, 65, 119, 'bluetooth', 'Bluetooth', self.bt_sub, app.toggle_bt, app.bt_menu)
+        self.dnd_sub = make_label('Off', 8, 'normal', 'muted', w=px(70), h=px(12)); self.night_sub = make_label('Off', 8, 'normal', 'muted', w=px(70), h=px(12))
+        self.tile(18, 120, 119, 'bell', 'Quiet', self.dnd_sub, app.toggle_dnd, lambda e: launch('osb-settings'))
+        self.tile(145, 120, 119, 'moon', 'Night light', self.night_sub, app.toggle_night, lambda e: launch('osb-settings display'))
+        self._shift = True
         # sliders
         self.row(18, 119, 40, 'sun', app.brightness, app.set_brightness, 'bright')
         self.row(18, 167, 40, 'volume', app.volume, app.set_volume, 'vol')
@@ -314,7 +322,7 @@ class QuickSettings(OsbWindow):
         self.move(sw - px(95) - self.cw - self.M, px(54) - self.M); return False
     def set_appearance_ui(self, mode):
         self.app_icon.set_name_('sun' if mode == 'light' else 'moon')
-        self.content.move(self.segact, px(198 if mode == 'light' else 227), px(224))
+        self.content.move(self.segact, px(198 if mode == 'light' else 227), px(224 + QS_DY))
         self.sun_i.color = 'primary' if mode == 'light' else 'muted'; self.moon_i.color = 'primary' if mode == 'dark' else 'muted'
         self.sun_i.queue_draw(); self.moon_i.queue_draw()
     def _focus_out(self, *a):
@@ -332,6 +340,14 @@ class ShellApp:
         for w in (self.wall, self.bar, self.dock): w.show_all()
         self.wall.show_all(); self.refresh_status()
         watch_mode(self._mode_from_file)
+        from . import sysconf
+        def sysinit():
+            try: sysconf.apply_touchpad(); sysconf.apply_power(); sysconf.apply_night()
+            except Exception as ex: print('sysinit', ex, file=sys.stderr)
+            return False
+        GLib.timeout_add(1500, sysinit); GLib.timeout_add_seconds(60, lambda: (sysconf.apply_night(), True)[-1])
+        watch_conf('nightlight.json', lambda: (sysconf.apply_night(), self.refresh_status()))
+        watch_conf('touchpad.json', sysconf.apply_touchpad); watch_conf('power.json', sysconf.apply_power)
         watch_conf('dock.json', self.rebuild_dock); watch_conf('topbar.json', self.rebuild_bar); watch_conf('accent', self.accent_changed)
     def rebuild_dock(self):
         old = self.dock; self.dock = Dock(self); self.dock.show_all(); old.destroy()
@@ -360,6 +376,11 @@ class ShellApp:
         self.volume = v; self.qs.vol_label.set_text('%d%%' % round(v * 100))
         launch(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '%.2f' % v])
     def refresh_status(self):
+        try:
+            from . import sysconf
+            self.qs.night_sub.set_text({'off': 'Off', 'on': 'On', 'auto': 'Evening'}[sysconf.get_night()['mode']])
+        except Exception: pass
+        run_bg(['sh', '-c', 'dunstctl is-paused 2>/dev/null'], lambda o: self.qs.dnd_sub.set_text('On' if o.strip() == 'true' else 'Off'), 3)
         def wf(out):
             on = 'enabled' in out and 'disabled' not in out
             self.qs.wifi_state = (on, self.qs.wifi_state[1])
@@ -373,6 +394,11 @@ class ShellApp:
         else:
             self.qs.show_all(); self.qs.present(); self.refresh_status(); self.qs.refresh_player()
             for d in (30, 150): GLib.timeout_add(d, self.qs.place)
+    def toggle_dnd(self):
+        run_bg(['sh', '-c', "dunstctl is-paused | grep -q true && dunstctl set-paused false || dunstctl set-paused true"], lambda o: self.refresh_status(), 4)
+    def toggle_night(self):
+        from . import sysconf
+        d = sysconf.get_night(); d['mode'] = 'off' if d['mode'] != 'off' else 'on'; sysconf.set_night(d); sysconf.apply_night(); self.refresh_status()
     def toggle_wifi(self):
         run_bg(['sh', '-c', "nmcli radio wifi | grep -q '^enabled' && nmcli radio wifi off || nmcli radio wifi on; rfkill unblock wifi 2>/dev/null"], lambda o: self.refresh_status(), 5)
     def toggle_bt(self):

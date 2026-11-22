@@ -1,0 +1,37 @@
+#!/bin/bash
+# Osborne OS: create the encrypted data partition on the free space of the card.
+#   printf '%s' "$PASSWORD" | osb-data-setup <username>
+# Test overrides: OSB_DISK (whole disk), OSB_DATA_DEV (partition), OSB_MNT (mount point), OSB_NOSYS=1 (skip crypttab/fstab edits)
+set -u
+U="${1:-}"; PASS=$(cat)
+MNT="${OSB_MNT:-/mnt/data}"
+[ -n "$PASS" ] || { echo "ERROR empty password"; exit 2; }
+if [ -z "${OSB_DATA_DEV:-}" ]; then
+  ROOTSRC=$(findmnt -n -o SOURCE /); DISK="${OSB_DISK:-/dev/$(lsblk -no PKNAME "$ROOTSRC" | head -1)}"
+  if [ ! -e /dev/disk/by-partlabel/data ]; then
+    echo "STEP Preparing the storage area..."
+    sgdisk -e "$DISK" >/dev/null 2>&1
+    sgdisk -n4:0:0 -t4:8309 -c4:data "$DISK" >/dev/null 2>&1 || { echo "ERROR could not create the data partition"; exit 3; }
+    partx -a --nr 4 "$DISK" >/dev/null 2>&1 || true
+    udevadm trigger >/dev/null 2>&1; udevadm settle >/dev/null 2>&1
+  fi
+  for i in $(seq 1 30); do [ -e /dev/disk/by-partlabel/data ] && break; sleep 1; done
+  DEV=/dev/disk/by-partlabel/data
+  [ -e "$DEV" ] || { echo "ERROR data partition not found"; exit 3; }
+else DEV="$OSB_DATA_DEV"; fi
+if cryptsetup isLuks "$DEV" 2>/dev/null; then echo "ERROR the storage is already set up"; exit 4; fi
+echo "STEP Locking your private files with your password..."
+printf '%s' "$PASS" | cryptsetup luksFormat --batch-mode --pbkdf argon2id --pbkdf-memory 262144 --iter-time 1500 --key-file=- "$DEV" || { echo "ERROR could not encrypt the storage"; exit 5; }
+printf '%s' "$PASS" | cryptsetup open --key-file=- "$DEV" data_crypt || { echo "ERROR could not open the encrypted storage"; exit 5; }
+echo "STEP Formatting the storage..."
+mkfs.ext4 -q -L osb-data -m 0 -E lazy_itable_init=1,lazy_journal_init=1 /dev/mapper/data_crypt || { echo "ERROR could not format the storage"; exit 6; }
+mkdir -p "$MNT"; mount /dev/mapper/data_crypt "$MNT" || { echo "ERROR could not mount the storage"; exit 7; }
+[ -n "$U" ] && id "$U" >/dev/null 2>&1 && chown "$U:$U" "$MNT"
+chmod 755 "$MNT"
+if [ -z "${OSB_NOSYS:-}" ]; then
+  # unlocking now happens at login with the account password (see osb-unlock); drop the boot-time prompt
+  sed -i '/data_crypt/d' /etc/crypttab /etc/fstab 2>/dev/null || true
+  install -d /var/lib/osborne; touch /var/lib/osborne/auto-unlock
+fi
+echo "STEP Storage ready."
+exit 0

@@ -1,0 +1,15 @@
+#!/bin/bash
+# pam_exec hook (lightdm login): unlock and mount the encrypted data partition with the login password.
+[ -f /var/lib/osborne/auto-unlock ] || exit 0
+[ "${PAM_TYPE:-auth}" = "auth" ] || exit 0
+MNT=/mnt/data
+mountpoint -q "$MNT" && exit 0
+DEV=/dev/disk/by-partlabel/data
+[ -e "$DEV" ] || exit 0
+IFS= read -r -d '' PASS
+[ -n "$PASS" ] || exit 0
+if [ ! -e /dev/mapper/data_crypt ]; then
+  printf '%s' "$PASS" | cryptsetup open --key-file=- "$DEV" data_crypt >/dev/null 2>&1 || exit 0
+fi
+mkdir -p "$MNT"; mount /dev/mapper/data_crypt "$MNT" >/dev/null 2>&1
+exit 0

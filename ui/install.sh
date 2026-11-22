@@ -16,12 +16,18 @@ apt-get install -y -qq --no-install-recommends \
   papirus-icon-theme network-manager-gnome lxpolkit dunst libnotify-bin qt5-gtk-platformtheme fonts-jetbrains-mono adwaita-icon-theme gnome-themes-extra libglib2.0-bin \
   python3-pam scrot xclip xss-lock x11-xserver-utils \
   xcape fonts-noto-core sound-theme-freedesktop pulseaudio-utils xserver-xorg-input-libinput curl ca-certificates || echo "  (some packages could not be installed; continuing)"
+echo "[1b/6] Hardware support, apps and tools..."
+apt-get install -y -qq --no-install-recommends linux-firmware intel-microcode amd64-microcode firmware-sof-signed wireless-regdb 2>/dev/null || apt-get install -y -qq --no-install-recommends linux-firmware 2>/dev/null || echo "  (firmware packages skipped)"
+apt-get install -y -qq --no-install-recommends xinput redshift mousepad evince mpv xarchiver viewnior cups system-config-printer ufw zram-tools fonts-noto-core fonts-noto-ui-core 2>/dev/null || {
+  for pk in xinput redshift mousepad evince mpv xarchiver viewnior cups system-config-printer ufw zram-tools fonts-noto-core; do apt-get install -y -qq --no-install-recommends $pk >/dev/null 2>&1 || echo "  (could not install $pk)"; done; }
 echo "[2/6] Installing shell + apps..."
 install -d /usr/local/lib/osborne
 rm -rf /usr/local/lib/osborne/osb; cp -r "$P/lib/osb" /usr/local/lib/osborne/osb
-for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store; do
+for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store osb-setup; do
   sed 's#^sys.path.insert.*#sys.path.insert(0, "/usr/local/lib/osborne")#' "$P/bin/$b" > /usr/local/bin/$b; chmod 755 /usr/local/bin/$b; done
 install -m 755 "$P/bin/osb-launcher" /usr/local/bin/
+install -m 755 "$P/bin/osb-setup-session" /usr/local/bin/
+install -d /usr/local/sbin; install -m 755 "$P/sbin/osb-setup-apply" "$P/sbin/osb-data-setup" "$P/sbin/osb-unlock" /usr/local/sbin/
 install -m 755 "$P/bin/osb-shot" /usr/local/bin/
 printf "QT_QPA_PLATFORMTHEME=gtk3\nGTK_THEME=\n" >/dev/null
 grep -q QT_QPA_PLATFORMTHEME /etc/environment 2>/dev/null || echo "QT_QPA_PLATFORMTHEME=gtk2" >> /etc/environment
@@ -120,10 +126,12 @@ PY
   fi
   [ -f "$H/.config/osborne/mode" ] || echo light > "$H/.config/osborne/mode"
   chown -R "$U:$U" "$H/.config/osborne" "$H/.config/openbox"
-  usermod -aG audio,video,netdev,bluetooth "$U" 2>/dev/null || true
+  [ "$U" = root ] || usermod -aG audio,video,netdev,bluetooth "$U" 2>/dev/null || true
 }
 for d in /home/*; do u=$(basename "$d"); id "$u" >/dev/null 2>&1 && cfgset "$d" "$u"; done
-install -d /etc/skel/.config/osborne /etc/skel/.config/openbox; cp "$P/cfg/"* /etc/skel/.config/osborne/
+install -d /etc/skel/.config/osborne /etc/skel/.config/openbox
+[ -f /etc/skel/.config/openbox/rc.xml ] || cp /etc/xdg/openbox/rc.xml /etc/skel/.config/openbox/rc.xml 2>/dev/null || true
+cfgset /etc/skel root   # new accounts (made by the first-boot wizard) start with the full Osborne desktop config
 echo "[5/6] Desktop entries..."
 cat > /usr/share/applications/osb-files.desktop <<'DE'
 [Desktop Entry]
@@ -147,7 +155,9 @@ for n in "settings:Settings:preferences-system:osb-settings" "calc:Calculator:ac
   printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=%s\nCategories=Utility;\nStartupWMClass=%s\n' "$nm" "$ex" "$ic" "$ex" > /usr/share/applications/osb-$id.desktop
 done
 sed -i '/^NoDisplay/d' /usr/share/applications/osb-apps.desktop; echo 'NoDisplay=true' >> /usr/share/applications/osb-apps.desktop
-for h in picom rofi rofi-theme-selector vim tint2 tint2conf nm-connection-editor lxappearance pcmanfm-desktop-pref pcmanfm file-roller org.gnome.FileRoller mousepad org.xfce.mousepad org.xfce.mousepad-settings pavucontrol blueman-manager blueman-adapters osb-wifi firefox htop lxrandr obconf openbox-config; do [ -f /usr/share/applications/$h.desktop ] && { install -d /usr/local/share/applications; cp /usr/share/applications/$h.desktop /usr/local/share/applications/; sed -i '/^NoDisplay/d' /usr/local/share/applications/$h.desktop; echo 'NoDisplay=true' >> /usr/local/share/applications/$h.desktop; }; done
+for h in picom rofi rofi-theme-selector vim tint2 tint2conf nm-connection-editor lxappearance pcmanfm-desktop-pref pcmanfm file-roller org.gnome.FileRoller org.xfce.mousepad-settings pavucontrol blueman-manager blueman-adapters osb-wifi firefox htop lxrandr obconf openbox-config; do [ -f /usr/share/applications/$h.desktop ] && { install -d /usr/local/share/applications; cp /usr/share/applications/$h.desktop /usr/local/share/applications/; sed -i '/^NoDisplay/d' /usr/local/share/applications/$h.desktop; echo 'NoDisplay=true' >> /usr/local/share/applications/$h.desktop; }; done
+rm -f /usr/local/share/applications/mousepad.desktop /usr/local/share/applications/org.xfce.mousepad.desktop
+printf '[Desktop Entry]\nType=Application\nName=Screenshot\nExec=osb-shot\nIcon=camera-photo\nCategories=Utility;\n' > /usr/share/applications/osb-shot.desktop
 echo "[6/6] Software stores (Snap + Flathub)..."
 apt-get install -y -qq --no-install-recommends snapd flatpak >/dev/null 2>&1 || echo "  (could not install snapd/flatpak: no internet or not available)"
 command -v flatpak >/dev/null 2>&1 && flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo >/dev/null 2>&1 || true
@@ -166,5 +176,20 @@ grep -q snapd/desktop /etc/environment 2>/dev/null || echo 'XDG_DATA_DIRS=/usr/l
 # boot resilience: repair the file system automatically after a hard power-off
 if [ -f /boot/grub/grub.cfg ] && grep -q 'root=LABEL=osb-root' /boot/grub/grub.cfg && ! grep -q 'fsck.repair=yes' /boot/grub/grub.cfg; then
   sed -i 's#root=LABEL=osb-root ro#root=LABEL=osb-root ro fsck.mode=auto fsck.repair=yes#' /boot/grub/grub.cfg || true
+fi
+# firewall: block incoming connections (outgoing is unaffected)
+if command -v ufw >/dev/null 2>&1; then
+  ufw default deny incoming >/dev/null 2>&1 || true; ufw default allow outgoing >/dev/null 2>&1 || true
+  sed -i 's/^ENABLED=.*/ENABLED=yes/' /etc/ufw/ufw.conf 2>/dev/null || true
+  ufw --force enable >/dev/null 2>&1 || true
+  systemctl enable ufw >/dev/null 2>&1 || true
+fi
+# private files unlock automatically with the login password (only active once the wizard created them)
+if [ -f /etc/pam.d/lightdm ] && ! grep -q osb-unlock /etc/pam.d/lightdm; then
+  sed -i '/^@include common-auth/a auth optional pam_exec.so expose_authtok quiet /usr/local/sbin/osb-unlock' /etc/pam.d/lightdm || true
+fi
+# boot menu: extra entry that forces a disk check and repair
+if [ -f /boot/grub/grub.cfg ] && grep -q 'root=LABEL=osb-root' /boot/grub/grub.cfg && ! grep -q 'check and repair' /boot/grub/grub.cfg; then
+  printf 'menuentry "Osborne OS (check and repair the disk)" {\n    linux /boot/vmlinuz root=LABEL=osb-root ro rootflags=noatime fsck.mode=force fsck.repair=yes\n    initrd /boot/initrd.img\n}\n' >> /boot/grub/grub.cfg || true
 fi
 echo "Done. Log out and back in (or reboot) to load the new desktop."
