@@ -764,6 +764,7 @@ class SettingsWin(OsbWindow):
             self.upd_status.set_text(t); return True
         self.timers.append(GLib.timeout_add_seconds(1, tick))
         def work():
+            nonlocal pw
             rc = 1
             try:
                 env = ['env', 'DEBIAN_FRONTEND=noninteractive'] + (['OSB_SHA=%s' % self.latest] if getattr(self, 'latest', None) else [])
