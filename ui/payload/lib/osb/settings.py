@@ -58,7 +58,7 @@ class SettingsWin(OsbWindow):
         if right is not None:
             rw = rw or 120
             if isinstance(right, Gtk.ComboBox):
-                right.set_size_request(px(rw), px(30))
+                right.set_size_request(px(rw), px(30)); style_combo(right)
                 for c in right.get_cells():
                     try: c.set_property('ellipsize', Pango.EllipsizeMode.END)
                     except Exception: pass
@@ -185,7 +185,7 @@ class SettingsWin(OsbWindow):
         self.row('Warmth', 'Move to the right for warmer colours', Slider(px(260), (6500 - nl['temp']) / 3000.0, settemp, lambda x: sysconf.apply_night()), rw=270)
         self.note('Tip: a lower resolution makes everything bigger on small screens.')
     def restart_desktop(self):
-        subprocess.Popen(['bash', '-c', 'pkill -f "python.*osb-shell"; pkill -f "python.*osb-files"; sleep 1; setsid osb-shell >/dev/null 2>&1 & sleep 2; setsid osb-files >/dev/null 2>&1 &'], start_new_session=True)
+        subprocess.Popen(['bash', '-c', 'pkill -f "[p]ython.*osb-shell"; pkill -f "[p]ython.*osb-files"; sleep 1; setsid osb-shell >/dev/null 2>&1 & sleep 2; setsid osb-files >/dev/null 2>&1 &'], start_new_session=True)
         GLib.timeout_add(600, lambda: (self.destroy(), False)[-1])
     def p_appearance(self):
         self.sect('Theme', 0)
@@ -257,6 +257,12 @@ class SettingsWin(OsbWindow):
         for key, title, sub in (('activities', 'Activities', 'The "Activities" button on the left'), ('appname', 'App name', 'Shows which app is active'), ('lang', 'Language', 'EN / AR indicator'),
                                 ('bell', 'Notifications', 'Notification centre button'), ('wifi', 'Wi-Fi icon', ''), ('vol', 'Sound icon', ''), ('bat', 'Battery icon', ''), ('clock', 'Clock', '')):
             self.row(title, sub, Switch(bar[key], lambda on, k=key: self.bar_set(k, on)), rw=42, h=52 if sub else 46)
+        cbp = Gtk.ComboBoxText(); poss = [('left', 'Left'), ('center', 'Centre'), ('right', 'Right')]; [cbp.append_text(t) for k, t in poss]
+        cbp.set_active([k for k, t in poss].index(bar.get('clock_pos', 'right')) if bar.get('clock_pos', 'right') in [k for k, t in poss] else 2)
+        cbp.connect('changed', lambda c: self.bar_set('clock_pos', poss[c.get_active()][0])); self.row('Clock position', 'Where the clock sits on the top bar', cbp, rw=130)
+        for key, title, sub in (('cpu', 'CPU usage', 'Show how busy the processor is'), ('ram', 'Memory usage', 'Show how much memory is used'), ('net', 'Network speed', 'Show download and upload speed')):
+            self.row(title, sub, Switch(bool(bar.get(key)), lambda on, k=key: self.bar_set(k, on)), rw=42, h=52)
+        self.note('Tip: right-click the top bar or a dock icon for quick options.')
         self.page.put(self.btn('Reset top bar', lambda: (save_json(BARFILE, BAR_DEFAULT), self.show('customize', True))), px(2), px(self.y)); self.y += 44
     def pick_accent(self, hx):
         set_accent(hx); apply_accent(hx); apply_css(State.mode); restyle_labels(); self.run_theme(State.mode)
@@ -330,7 +336,10 @@ class SettingsWin(OsbWindow):
         have = set(('ara' if c == 'ar' else c) for c in cur.split(','))
         self.sect('Language', 0)
         cbl = Gtk.ComboBoxText(); [cbl.append_text(n) for k, n in sysconf.LANGS]; cbl.set_active([k for k, n in sysconf.LANGS].index(sysconf.get_lang()))
-        def setl(c): sysconf.set_lang(sysconf.LANGS[c.get_active()][0]); self.notify('Language', 'Saved. Restart the desktop to apply.')
+        def setl(c):
+            if sysconf.LANGS[c.get_active()][0] == sysconf.get_lang(): return
+            sysconf.set_lang(sysconf.LANGS[c.get_active()][0])
+            GLib.timeout_add(700, lambda: os.execv(sys.executable, [sys.executable, sys.argv[0], 'keyboard']))   # reopen Settings in the new language; the top bar and dock reload themselves
         cbl.connect('changed', setl); self.row('Interface language', 'Language of menus, buttons and settings', cbl, rw=170)
         self.sect('Layouts'); self.note('Press Alt + Shift to switch between the layouts you enable.')
         def apply():
@@ -450,8 +459,8 @@ class SettingsWin(OsbWindow):
                 try: import_avatar(d.get_filename())
                 except Exception as ex: self.notify('Profile', 'Could not use that picture: %s' % ex)
             d.destroy(); self.show('profile', True)
-        P.put(self.btn('Choose a picture…', pick, True), px(6), px(self.y))
-        P.put(self.btn('Use initials', lambda: (set_avatar('initials'), self.show('profile', True))), px(170), px(self.y)); self.y += 46
+        hb = Gtk.Box(spacing=px(10)); hb.pack_start(self.btn('Choose a picture…', pick, True), False, False, 0)
+        hb.pack_start(self.btn('Use initials', lambda: (set_avatar('initials'), self.show('profile', True))), False, False, 0); P.put(hb, px(6), px(self.y)); self.y += 46
         self.note('Your name and picture show in the top panel, Files and the lock screen.')
 
     # ---- about (creator info from GitHub)
@@ -505,8 +514,8 @@ class SettingsWin(OsbWindow):
         self.row('Installed version', 'v%s%s' % (VERSION, ('  \u00b7  build ' + cur[:7]) if cur else ''), None)
         self.upd_status = make_label('Checking for updates…', 11, 'semibold', 'text', w=self.PWd, h=px(20)); self.page.put(self.upd_status, px(6), px(self.y)); self.y += 30
         self.upd_log = make_label('', 9, 'normal', 'muted', w=self.PWd, h=px(16)); self.page.put(self.upd_log, px(6), px(self.y)); self.y += 26
-        self.upd_bar = PulseBar(self.PWd - px(60)); self.upd_bar.set_no_show_all(True); self.page.put(self.upd_bar, px(6), px(self.y))
-        self.upd_arrow = Gtk.Button(label='\u25B8 Details'); self.upd_arrow.connect('clicked', lambda *a: self.toggle_details()); self.upd_arrow.set_size_request(px(86), px(26)); self.page.put(self.upd_arrow, self.PWd - px(96), px(self.y - 6)); self.y += 22
+        self.upd_bar = PulseBar(self.PWd - px(150)); self.upd_bar.set_no_show_all(True); self.page.put(self.upd_bar, px(6), px(self.y))
+        self.upd_arrow = Gtk.Button(label='\u25B8 Details'); self.upd_arrow.connect('clicked', lambda *a: self.toggle_details()); self.upd_arrow.set_size_request(px(86), px(26)); self.page.put(self.upd_arrow, self.PWd - px(130), px(self.y - 9)); self.y += 22
         self.upd_btn = self.btn('Update now', self.do_update, True); self.upd_btn.set_size_request(px(140), px(36)); self.upd_btn.set_sensitive(False); self.page.put(self.upd_btn, px(4), px(self.y))
         self.chk_btn = self.btn('Check again', lambda: self.check_update()); self.chk_btn.set_size_request(px(120), px(36)); self.page.put(self.chk_btn, px(156), px(self.y)); self.y += 56
         self.out_btn = self.btn('Restart desktop', lambda: self.restart_shell()); self.out_btn.set_size_request(px(160), px(36)); self.out_btn.set_no_show_all(True); self.page.put(self.out_btn, px(290), px(self.y - 56)); self.y += 0
@@ -518,7 +527,7 @@ class SettingsWin(OsbWindow):
         self.note('Needs an internet connection. Your files and settings are kept.')
         self.check_update()
     def restart_shell(self):
-        subprocess.Popen(['bash', '-c', 'pkill -f "python.*osb-shell"; sleep 1; setsid osb-shell >/dev/null 2>&1 &'], start_new_session=True)
+        subprocess.Popen(['bash', '-c', 'pkill -f "[p]ython.*osb-shell"; sleep 1; setsid osb-shell >/dev/null 2>&1 &'], start_new_session=True)
         self.out_btn.set_sensitive(False); self.upd_status.set_text('Restarting the desktop…')
     def toggle_details(self, force=None):
         self.det_open = (not self.det_open) if force is None else force
@@ -550,12 +559,15 @@ class SettingsWin(OsbWindow):
     def checked(self, sha):
         if self.cur != 'update' or self.upd_status.get_parent() is None: return
         self.latest = sha
-        if not sha: self.upd_status.set_text('Could not reach GitHub. Check your internet connection.'); self.upd_btn.set_sensitive(False)
+        if not sha: self.upd_status.set_text('Could not check for updates (GitHub is not answering). You can still try "Update now".'); self.upd_btn.set_sensitive(True)
         elif sha == self.upd_cur: self.upd_status.set_text('Osborne is up to date.'); self.upd_btn.set_sensitive(False)
         else: self.upd_status.set_text('A new version is available.'); self.upd_btn.set_sensitive(True)
     def do_update(self):
         if self.upd_busy: return
+        pw = ask_password(self, 'Update Osborne', 'Type your account password to install the update.', 'Update')
+        if pw is None: return
         self.upd_busy = True; self.upd_btn.set_sensitive(False); self.chk_btn.set_sensitive(False); self.upd_status.set_text('Updating… this takes a few minutes. Please keep the device on.')
+        self.upd_lines = ['Starting the update…']; self.toggle_details(False); self.toggle_details(True)
         self.upd_t0 = self.upd_last = time.time(); self.upd_step = 0; self.upd_bar.show(); self.upd_bar.set_fraction(0.03); self.upd_bar.start()
         def tick():
             if not self.upd_busy or self.upd_status.get_parent() is None: return False
@@ -565,22 +577,27 @@ class SettingsWin(OsbWindow):
             self.upd_status.set_text(t); return True
         self.timers.append(GLib.timeout_add_seconds(1, tick))
         def work():
+            rc = 1
             try:
-                cmd = 'set -o pipefail; T=$(mktemp); curl -fsSL --retry 3 --connect-timeout 20 "%s" -o "$T" || { echo "ERROR: could not download the update script (code $?)"; exit 20; }; grep -q "Osborne OS" "$T" || { echo "ERROR: the downloaded update script is invalid"; exit 21; }; OSB_SHA=%s bash "$T"' % (self.UPD_URL, getattr(self, 'latest', '') or '')
-                p = subprocess.Popen(['pkexec', 'bash', '-c', cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                env = ['env', 'DEBIAN_FRONTEND=noninteractive'] + (['OSB_SHA=%s' % self.latest] if getattr(self, 'latest', None) else [])
+                script = '/usr/local/lib/osborne/update.py'
+                if not os.path.isfile(script): script = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'update.py')
+                p = subprocess.Popen(['sudo', '-S', '-k', '-p', ''] + env + ['python3', script], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                p.stdin.write(pw + '\n'); p.stdin.close(); pw = None
                 GLib.idle_add(self.det_add, '$ update started')
                 for ln in p.stdout:
                     ln = ln.strip()
                     if ln:
                         self.upd_tail = ln[:90]; GLib.idle_add(self.det_add, ln)
-                        m = re.match(r'\[(\d)/6\]', ln)
-                        def ui(t=ln[:90], n=int(m.group(1)) if m else 0):
+                        m = re.match(r'\[(\d)/6\]', ln); d = re.match(r'DL (\d+)/(\d+)', ln)
+                        def ui(t=ln[:90], n=int(m.group(1)) if m else 0, dl=(int(d.group(1)) / float(d.group(2))) if d else None):
                             self.upd_last = time.time()
-                            if n: self.upd_step = n; self.upd_bar.set_fraction(0.05 + 0.9 * (n - 1) / 6.0)
+                            if n: self.upd_step = n; self.upd_bar.set_fraction(0.12 + 0.86 * (n - 1) / 6.0)
+                            elif dl is not None: self.upd_bar.set_fraction(0.02 + 0.10 * dl)
                             if self.upd_log.get_parent(): self.upd_log.set_text(t)
                         GLib.idle_add(ui)
                 rc = p.wait()
-            except Exception: rc = 1
+            except Exception as ex: GLib.idle_add(self.det_add, 'ERROR: %s' % ex)
             GLib.idle_add(self.update_done, rc)
         threading.Thread(target=work, daemon=True).start()
     def update_done(self, rc):

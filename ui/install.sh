@@ -22,6 +22,7 @@ apt-get install -y -qq --no-install-recommends xinput redshift mousepad evince m
   for pk in xinput redshift mousepad evince mpv xarchiver viewnior cups system-config-printer ufw zram-tools fonts-noto-core; do apt-get install -y -qq --no-install-recommends $pk >/dev/null 2>&1 || echo "  (could not install $pk)"; done; }
 echo "[2/6] Installing shell + apps..."
 install -d /usr/local/lib/osborne
+[ -f "$HERE/update.py" ] && install -m 755 "$HERE/update.py" /usr/local/lib/osborne/update.py
 rm -rf /usr/local/lib/osborne/osb; cp -r "$P/lib/osb" /usr/local/lib/osborne/osb
 for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store osb-setup; do
   sed 's#^sys.path.insert.*#sys.path.insert(0, "/usr/local/lib/osborne")#' "$P/bin/$b" > /usr/local/bin/$b; chmod 755 /usr/local/bin/$b; done

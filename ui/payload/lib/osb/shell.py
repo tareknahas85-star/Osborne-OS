@@ -4,6 +4,7 @@ import gi
 gi.require_version('GdkX11','3.0')
 from gi.repository import GdkX11
 from .common import *
+from .i18n import tr as T
 
 def launch(cmd):
     try: subprocess.Popen(cmd, shell=isinstance(cmd, str), start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -40,8 +41,45 @@ class Wallpaper(Gtk.Window):
         if e.button != 3: return False
         m = new_menu()
         for label, cmd in (('Change wallpaper', 'osb-settings appearance'), ('Display settings', 'osb-settings display'), ('Open Files', 'osb-files'), ('Open Terminal', 'lxterminal'), ('Settings', 'osb-settings')):
-            it = Gtk.MenuItem(label=label); it.connect('activate', lambda i, c=cmd: launch(c)); m.append(it)
+            it = Gtk.MenuItem(label=T(label)); it.connect('activate', lambda i, c=cmd: launch(c)); m.append(it)
         m.show_all(); m.popup_at_pointer(e); return True
+
+def lclick(fn):
+    """button-press handler that reacts to the left button only (so right-click can open a menu)."""
+    return lambda w, e: ((fn(), True)[-1] if e.button == 1 else False)
+
+class Stats:
+    """CPU %, memory % and network speed, read from /proc (cheap)."""
+    def __init__(self): self.c = None; self.n = None; self.t = 0
+    def read(self):
+        now = time.time(); out = {}
+        try:
+            v = [int(x) for x in open('/proc/stat').readline().split()[1:8]]; idle = v[3] + v[4]; tot = sum(v)
+            if self.c: out['cpu'] = max(0, min(100, int(round(100.0 * (1 - (idle - self.c[0]) / float(max(1, tot - self.c[1])))))))
+            self.c = (idle, tot)
+        except Exception: pass
+        try:
+            m = {}
+            for ln in open('/proc/meminfo'):
+                k, v = ln.split(':', 1); m[k] = int(v.split()[0])
+                if len(m) > 6: break
+            out['ram'] = int(round(100.0 * (m['MemTotal'] - m['MemAvailable']) / m['MemTotal']))
+        except Exception: pass
+        try:
+            rx = tx = 0
+            for ln in list(open('/proc/net/dev'))[2:]:
+                n, d = ln.split(':', 1)
+                if n.strip() == 'lo' or n.strip().startswith(('docker', 'veth', 'virbr')): continue
+                f = d.split(); rx += int(f[0]); tx += int(f[8])
+            if self.n and now > self.t: out['down'] = max(0, (rx - self.n[0]) / (now - self.t)); out['up'] = max(0, (tx - self.n[1]) / (now - self.t))
+            self.n = (rx, tx); self.t = now
+        except Exception: pass
+        return out
+
+def fmt_speed(b):
+    for u, d in (('G', 1 << 30), ('M', 1 << 20), ('K', 1 << 10)):
+        if b >= d: return '%.1f%s' % (b / float(d), u) if b < 10 * d else '%d%s' % (b / d, u)
+    return '%dB' % b
 
 # ---------------------------------------------------------------- top bar
 APPNAMES = {'osb-files': 'Files', 'Osb-files': 'Files', 'firefox': 'Firefox', 'Firefox': 'Firefox', 'google-chrome': 'Chrome', 'Google-chrome': 'Chrome', 'lxterminal': 'Terminal',
@@ -56,7 +94,7 @@ class TopBar(OsbWindow):
         if cfg['activities']:
             act = make_label('Activities', 13, 'semibold', 'text', w=px(80), h=px(20)); self.put(act, px(lx), px(10)); lx = 127
             aev = Gtk.EventBox(); aev.set_visible_window(False); aev.set_size_request(px(80), px(40)); aev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-            aev.connect('button-press-event', lambda *a: launch('osb-switcher overview')); self.put(aev, px(54), 0)
+            aev.connect('button-press-event', lclick(lambda: launch('osb-switcher overview'))); self.put(aev, px(54), 0)
         self.appl = make_label('Files', 13, 'medium', 'muted', w=px(140), h=px(20))
         if cfg['appname']: self.put(self.appl, px(lx), px(10))
         self.wifi = Icon('wifi', px(17), 'text', 1.6); self.vol = Icon('volume', px(17), 'text', 1.6); self.bat = Icon('battery', px(17), 'text', 1.6)
@@ -65,26 +103,65 @@ class TopBar(OsbWindow):
         self.bell = Icon('bell', px(17), 'text', 1.6)
         self.pw = Icon('power', px(17), 'text', 1.7); self.put(self.pw, sw - px(36), px(11))
         pev = Gtk.EventBox(); pev.set_visible_window(False); pev.set_size_request(px(32), px(40)); pev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        pev.connect('button-press-event', lambda *a: (launch('osb-power'), True)[-1]); self.put(pev, sw - px(42), 0)
+        pev.connect('button-press-event', lclick(lambda: launch('osb-power'))); self.put(pev, sw - px(42), 0)
         # right side: laid out from the power button towards the left, only the items the user kept
         cur = sw - px(56); self.put(self.chev, cur - px(14), px(13)); cur -= px(14)
         right_edge = cur + px(14)
         tray = []
-        if cfg['clock']: cur -= px(70); self.put(self.clock, cur, px(10)); tray.append(cur)
+        cpos = cfg.get('clock_pos', 'right')
+        if cfg['clock'] and cpos == 'right': cur -= px(70); self.put(self.clock, cur, px(10)); tray.append(cur)
         for key, w_, off in (('bat', 17, 9), ('vol', 17, 9), ('wifi', 17, 9)):
             if cfg[key]: cur -= px(w_ + off); self.put(getattr(self, key), cur, px(11)); tray.append(cur)
         tray_left = cur
         ev = Gtk.EventBox(); ev.set_visible_window(False); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        ev.set_size_request(max(px(40), right_edge - tray_left + px(20)), px(40)); ev.connect('button-press-event', lambda *a: app.toggle_qs()); self.put(ev, tray_left - px(10), 0)
+        ev.set_size_request(max(px(40), right_edge - tray_left + px(20)), px(40)); ev.connect('button-press-event', lclick(app.toggle_qs)); self.put(ev, tray_left - px(10), 0)
         if cfg['bell']:
             cur -= px(17 + 16); self.put(self.bell, cur, px(11))
             bev = Gtk.EventBox(); bev.set_visible_window(False); bev.set_size_request(px(32), px(40)); bev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-            bev.connect('button-press-event', lambda *a: (launch('osb-notifs'), True)[-1]); self.put(bev, cur - px(7), 0)
+            bev.connect('button-press-event', lclick(lambda: launch('osb-notifs'))); self.put(bev, cur - px(7), 0)
         if cfg['lang']:
             cur -= px(30 + 8); self.put(self.lay, cur, px(10))
             lev = Gtk.EventBox(); lev.set_visible_window(False); lev.set_size_request(px(34), px(40)); lev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-            lev.connect('button-press-event', lambda *a: (self.toggle_layout(), True)[-1]); self.put(lev, cur - px(2), 0)
+            lev.connect('button-press-event', lclick(self.toggle_layout)); self.put(lev, cur - px(2), 0)
+        # left / centre clock and the optional CPU, memory and network readouts
+        lx2 = px(lx) + (px(150) if cfg['appname'] else 0)
+        if cfg['clock'] and cpos in ('left', 'center'):
+            self.clock.set_xalign(0.5); self.clock.set_size_request(px(80), px(20))
+            cx = int((sw - px(80)) / 2) if cpos == 'center' else lx2; self.put(self.clock, cx, px(10))
+            cev = Gtk.EventBox(); cev.set_visible_window(False); cev.set_size_request(px(80), px(40)); cev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            cev.connect('button-press-event', lclick(app.toggle_qs)); self.put(cev, cx, 0)
+            if cpos == 'left': lx2 += px(90)
+        self.stats = Stats(); self.stat_on = [k for k in ('cpu', 'ram', 'net') if cfg.get(k)]
+        self.statl = make_label('', 11, 'medium', 'muted', w=px(300), h=px(20))
+        if self.stat_on:
+            self.put(self.statl, lx2 + px(6), px(10)); self.stats.read(); GLib.timeout_add_seconds(2, self.stat_tick)
+        self.connect('button-press-event', self._rclick)
         self.connect('realize', self._strut); self.poll_layout(); GLib.timeout_add(800, self.poll_layout); self.tick(); GLib.timeout_add_seconds(15, self.tick); GLib.timeout_add(2500, self.poll_active)
+    def stat_tick(self):
+        if not self.stat_on: return False
+        d = self.stats.read(); parts = []
+        if 'cpu' in self.stat_on and 'cpu' in d: parts.append('CPU %d%%' % d['cpu'])
+        if 'ram' in self.stat_on and 'ram' in d: parts.append('RAM %d%%' % d['ram'])
+        if 'net' in self.stat_on and 'down' in d: parts.append('\u2193%s \u2191%s' % (fmt_speed(d['down']), fmt_speed(d['up'])))
+        self.statl.set_text('   '.join(parts)); return True
+    def _rclick(self, w, e):
+        if e.button != 3: return False
+        m = new_menu(); self.app.menu_open = True; cfg = load_bar()
+        def flip(k):
+            d = load_bar(); d[k] = not d.get(k); save_json(BARFILE, d)
+        def setpos(v):
+            d = load_bar(); d['clock_pos'] = v; save_json(BARFILE, d)
+        for k, lab in (('cpu', 'Show CPU usage'), ('ram', 'Show memory usage'), ('net', 'Show network speed')):
+            it = Gtk.CheckMenuItem(label=T(lab)); it.set_active(bool(cfg.get(k))); it.connect('toggled', lambda i, k=k: flip(k)); m.append(it)
+        m.append(Gtk.SeparatorMenuItem())
+        sub = Gtk.Menu(); grp = None
+        for v, lab in (('left', 'Left'), ('center', 'Centre'), ('right', 'Right')):
+            it = Gtk.RadioMenuItem.new_with_label_from_widget(grp, T(lab)); grp = grp or it; it.set_active(cfg.get('clock_pos', 'right') == v)
+            it.connect('toggled', lambda i, v=v: i.get_active() and setpos(v)); sub.append(it)
+        ci = Gtk.MenuItem(label=T('Clock position')); ci.set_submenu(sub); m.append(ci)
+        m.append(Gtk.SeparatorMenuItem())
+        it = Gtk.MenuItem(label=T('Top bar settings…')); it.connect('activate', lambda i: launch(['osb-settings', 'customize'])); m.append(it)
+        m.connect('hide', lambda *a: setattr(self.app, 'menu_open', False)); m.show_all(); m.popup_at_pointer(e); return True
     def _strut(self, *_):
         try:
             xid = self.get_window().get_xid(); h = px(40)
@@ -169,13 +246,13 @@ class Dock(OsbWindow):
         for i, it in enumerate(items):
             x = px(pad) + i * px(T + G)
             if it in BUILTIN:
-                ic, stops, fn, cls, _lab = BUILTIN[it]; self.put(self.tile(ic, stops, fn, T), x, px(9))
+                ic, stops, fn, cls, _lab = BUILTIN[it]; self.put(self.tile(ic, stops, fn, T, it), x, px(9))
                 if cls:
                     dot = Gtk.DrawingArea(); dot.set_size_request(px(5), px(5)); dot.on = False
                     dot.connect('draw', lambda w, cr: ((cr.arc(px(2.5), px(2.5), px(2.2), 0, 6.3), cr.set_source_rgba(*hex2rgb(pal('bar'))), cr.fill()) if w.on else None, False)[-1])
                     self.put(dot, x + px(T / 2.0) - px(2), px(9 + T + 3)); self.dots[cls] = dot
             else:
-                self.put(self.app_tile(app_info(it), T), x, px(9))
+                self.put(self.app_tile(app_info(it), T, it), x, px(9))
         if cfg['trash']:
             sx = px(pad) + n * px(T + G) - px(G) + px(8)
             self.put(Box('rowline', max(1, px(1)), px(T * 0.8)), sx, px(9 + T * 0.1))
@@ -185,6 +262,28 @@ class Dock(OsbWindow):
                 draw_icon(cr, 'trash', px(T * 0.21), px(T * 0.21), px(T * 0.57), pal('trashicon'), 1.7); return False
             t.connect('draw', dt); t.connect('button-press-event', lambda *a: launch('osb-files --trash')); self.put(t, sx + px(9), px(9))
         GLib.timeout_add(5000, self.poll); self.poll()
+    def item_menu(self, item, e):
+        """Right-click menu of a dock icon."""
+        m = new_menu(); self.app.menu_open = True; d = load_dock(); its = d['items']; i = its.index(item) if item in its else -1
+        def save(): save_json(DOCKFILE, d)
+        def do_open():
+            if item in BUILTIN: BUILTIN[item][2]()
+            else:
+                ai = app_info(item)
+                if ai: ai.launch([], None)
+        def move(delta):
+            j = i + delta
+            if 0 <= i and 0 <= j < len(its): its[i], its[j] = its[j], its[i]; save()
+        def remove():
+            if len(its) > 1 and i >= 0: its.pop(i); save()
+        entries = [('Open', do_open, True)]
+        entries += [('Move left', lambda: move(-1), i > 0), ('Move right', lambda: move(1), 0 <= i < len(its) - 1), ('Remove from dock', remove, len(its) > 1)]
+        for lab, fn, ok in entries:
+            it = Gtk.MenuItem(label=T(lab)); it.set_sensitive(ok); it.connect('activate', lambda w, f=fn: f()); m.append(it)
+            if lab == entries[0][0]: m.append(Gtk.SeparatorMenuItem())
+        m.append(Gtk.SeparatorMenuItem())
+        it = Gtk.MenuItem(label=T('Dock settings…')); it.connect('activate', lambda w: launch(['osb-settings', 'customize'])); m.append(it)
+        m.connect('hide', lambda *a: setattr(self.app, 'menu_open', False)); m.show_all(); m.popup_at_pointer(e)
     def poll(self):
         def work():
             res = {cls: bool(sh_out("xdotool search --class %s 2>/dev/null | head -1" % cls)) for cls in self.dots}
@@ -195,14 +294,14 @@ class Dock(OsbWindow):
             d = self.dots[cls]
             if d.on != on: d.on = on; d.queue_draw()
         return False
-    def tile(self, ic, stops, fn, T=42):
+    def tile(self, ic, stops, fn, T=42, item=None):
         d = Gtk.DrawingArea(); sz = px(T); d.set_size_request(sz, sz); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         def draw(w, cr):
             if ic == 'globe': rainbow_tile(cr, sz, sz, px(14))
             else: gradient_tile(cr, sz, sz, px(14), stops, 160)
             draw_icon(cr, ic, sz * 0.21, sz * 0.21, sz * 0.57, '#ffffff', 1.7); return False
-        d.connect('draw', draw); d.connect('button-press-event', lambda *a: fn()); return d
-    def app_tile(self, ai, T=42):
+        d.connect('draw', draw); d.connect('button-press-event', lambda w, e: (fn(), True)[-1] if e.button == 1 else (self.item_menu(item, e), True)[-1]); return d
+    def app_tile(self, ai, T=42, item=None):
         d = Gtk.DrawingArea(); sz = px(T); d.set_size_request(sz, sz); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         pb = [None]
         def load():
@@ -215,7 +314,7 @@ class Dock(OsbWindow):
             rounded_rect(cr, 0, 0, sz, sz, px(14)); cr.set_source_rgba(*hex2rgb(pal('trash'))); cr.fill()
             if pb[0]: Gdk.cairo_set_source_pixbuf(cr, pb[0], (sz - pb[0].get_width()) / 2.0, (sz - pb[0].get_height()) / 2.0); cr.paint()
             return False
-        d.connect('draw', draw); d.connect('button-press-event', lambda *a: ai.launch([], None)); return d
+        d.connect('draw', draw); d.connect('button-press-event', lambda w, e: (ai.launch([], None), True)[-1] if e.button == 1 else (self.item_menu(item, e), True)[-1]); return d
 
 # ---------------------------------------------------------------- quick settings
 QS_DY = 55
@@ -348,6 +447,7 @@ class ShellApp:
         GLib.timeout_add(1500, sysinit); GLib.timeout_add_seconds(60, lambda: (sysconf.apply_night(), True)[-1])
         watch_conf('nightlight.json', lambda: (sysconf.apply_night(), self.refresh_status()))
         watch_conf('touchpad.json', sysconf.apply_touchpad); watch_conf('power.json', sysconf.apply_power)
+        watch_conf('lang', lambda: os.execv(sys.executable, [sys.executable] + sys.argv))
         watch_conf('dock.json', self.rebuild_dock); watch_conf('topbar.json', self.rebuild_bar); watch_conf('accent', self.accent_changed)
     def rebuild_dock(self):
         old = self.dock; self.dock = Dock(self); self.dock.show_all(); old.destroy()
@@ -417,7 +517,7 @@ class ShellApp:
         m = new_menu(); self.menu_open = True
         for label, cmd in (('Network', 'nm-connection-editor'), ('Wi-Fi networks', 'osb-wifi'), ('Bluetooth', 'blueman-manager'),
                            ('Sound', 'pavucontrol'), ('Appearance', 'lxappearance'), ('Terminal', 'lxterminal')):
-            it = Gtk.MenuItem(label=label); it.connect('activate', lambda w, c=cmd: launch(c)); m.append(it)
+            it = Gtk.MenuItem(label=T(label)); it.connect('activate', lambda w, c=cmd: launch(c)); m.append(it)
         m.connect('hide', lambda *a: setattr(self, 'menu_open', False)); m.show_all(); m.popup_at_pointer(None)
 
 def main():

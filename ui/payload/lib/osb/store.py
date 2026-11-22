@@ -1,5 +1,5 @@
 """osb-store: Osborne Software - one themed store for Flathub (Flatpak) and the Snap Store."""
-import os, re, sys, shutil, subprocess, threading, hashlib
+import os, re, sys, shutil, subprocess, threading, hashlib, pty, select, time
 from .common import *
 
 FLATHUB = 'https://dl.flathub.org/repo/flathub.flatpakrepo'
@@ -33,10 +33,48 @@ def run(cmd, timeout=40):
 
 def have(cmd): return shutil.which(cmd) is not None
 
+def run_stream(cmd, on_line, timeout=1800, stdin_text=None):
+    """Run a command on a pseudo terminal (so flatpak prints its progress) and call on_line(text) for every line or progress update."""
+    try:
+        master, slave = pty.openpty()
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL, stdout=slave, stderr=slave, close_fds=True); os.close(slave)
+    except FileNotFoundError: return 127, 'not installed'
+    except Exception as e: return 1, str(e)
+    if stdin_text is not None:
+        try: p.stdin.write(stdin_text.encode()); p.stdin.close()
+        except Exception: pass
+    buf = b''; t0 = time.time(); last = ''
+    while True:
+        if time.time() - t0 > timeout: p.kill(); return 1, 'timed out'
+        r, _, _ = select.select([master], [], [], 1.0)
+        if r:
+            try: d = os.read(master, 2048)
+            except OSError: d = b''
+            if not d: break
+            buf += d
+            parts = re.split(rb'[\r\n]', buf); buf = parts.pop()
+            for part in parts:
+                t = re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', part.decode('utf-8', 'replace')).strip()
+                if t: last = t; on_line(t)
+        elif p.poll() is not None: break
+    try: os.close(master)
+    except Exception: pass
+    return p.wait(), last
+
+_fh = {'ready': False, 'err': ''}
+def ensure_flathub(on_line=None):
+    """Add the Flathub store (once) and download its app list, so search and install work."""
+    if not have('flatpak'): _fh['err'] = 'Flatpak is not installed on this system.'; return False
+    rc, out, err = run(['flatpak', 'remote-add', '--user', '--if-not-exists', 'flathub', FLATHUB], 60)
+    if rc != 0: _fh['err'] = (err or out).strip().splitlines()[-1][:120] if (err or out).strip() else 'Could not add Flathub.'; return False
+    rc, last = run_stream(['flatpak', 'update', '--user', '--appstream', '-y', '--noninteractive', 'flathub'], on_line or (lambda t: None), 240)
+    _fh['ready'] = rc == 0; _fh['err'] = '' if rc == 0 else (last or 'Could not download the app list.')
+    return _fh['ready']
+
 # --------------------------------------------------------------- backends
 def flatpak_search(q):
     if not have('flatpak'): return []
-    rc, out, _ = run(['flatpak', 'search', '--columns=application,name,description', q], 40)
+    rc, out, _ = run(['flatpak', 'search', '--user', '--columns=application,name,description', q], 60)
     res = []
     for ln in out.splitlines():
         p = ln.split('\t')
@@ -70,16 +108,16 @@ def installed_list():
 def installed_ids():
     return {(a['src'], a['id']) for a in installed_list()}
 
-def do_install(a):
+def do_install(a, on_line, pw=None):
     if a['src'] == 'flathub':
-        run(['flatpak', 'remote-add', '--user', '--if-not-exists', 'flathub', FLATHUB], 40)
-        return run(['flatpak', 'install', '--user', '-y', '--noninteractive', 'flathub', a['id']], 1800)
-    cmd = ['pkexec', 'snap', 'install', a['id']] + (['--classic'] if a.get('classic') else [])
-    return run(cmd, 1800)
+        if not _fh['ready'] and not ensure_flathub(on_line): return 1, 'Flathub: ' + (_fh['err'] or 'not reachable')
+        return run_stream(['flatpak', 'install', '--user', '-y', '--noninteractive', 'flathub', a['id']], on_line, 3600)
+    cmd = ['sudo', '-S', '-k', '-p', '', 'snap', 'install', a['id']] + (['--classic'] if a.get('classic') else [])
+    return run_stream(cmd, on_line, 3600, stdin_text=(pw or '') + '\n')
 
-def do_remove(a):
-    if a['src'] == 'flathub': return run(['flatpak', 'uninstall', '--user', '-y', '--noninteractive', a['id']], 600)
-    return run(['pkexec', 'snap', 'remove', a['id']], 600)
+def do_remove(a, on_line, pw=None):
+    if a['src'] == 'flathub': return run_stream(['flatpak', 'uninstall', '--user', '-y', '--noninteractive', a['id']], on_line, 900)
+    return run_stream(['sudo', '-S', '-k', '-p', '', 'snap', 'remove', a['id']], on_line, 900, stdin_text=(pw or '') + '\n')
 
 # --------------------------------------------------------------- UI
 class Store(OsbWindow):
@@ -93,7 +131,12 @@ class Store(OsbWindow):
         self.put(Box('qsrow', px(470), px(42)), px(30), px(76)); self.put(Icon('search', px(18), 'muted', 1.6), px(44), px(88))
         self.entry = Gtk.Entry(); self.entry.set_has_frame(False); self.entry.set_placeholder_text('Search apps in Flathub and Snap')
         self.entry.set_size_request(px(410), px(34)); self.entry.get_style_context().add_class('osbentry'); self.put(self.entry, px(72), px(80))
-        self.entry.connect('activate', lambda e: self.search())
+        self.entry.connect('activate', lambda e: self.search()); self.deb = None
+        def typed(e):
+            if self.deb: GLib.source_remove(self.deb)
+            self.deb = GLib.timeout_add(700, lambda: (setattr(self, 'deb', None), self.search(), False)[-1]) if e.get_text().strip() else None
+            if not e.get_text().strip() and self.mode != 'installed': self.show_featured()
+        self.entry.connect('changed', typed)
         self.mode = 'all'; self.pills = {}
         for i, (key, lab) in enumerate((('all', 'All'), ('flathub', 'Flathub'), ('snap', 'Snap'), ('installed', 'Installed'))):
             x = 512 + i * 66 if i < 3 else 512 + 3 * 66 + 0
@@ -111,6 +154,15 @@ class Store(OsbWindow):
         threading.Thread(target=self._warm, daemon=True).start()
     def _warm(self):
         ids = installed_ids(); GLib.idle_add(self._set_inst, ids)
+        if have('flatpak') and not _fh['ready']:
+            GLib.idle_add(self.status.set_text, 'Connecting to Flathub… (first time can take a minute)')
+            ok = ensure_flathub(lambda t: GLib.idle_add(self.status.set_text, 'Connecting to Flathub… ' + t[:60]))
+            GLib.idle_add(self._fh_done, ok)
+    def _fh_done(self, ok):
+        if self.busy: return False
+        if ok: self.status.set_text('Popular apps' if not self.entry.get_text().strip() else self.status.get_text())
+        else: self.status.set_text('Cannot reach Flathub: %s' % (_fh['err'] or 'check the internet connection'))
+        return False
     def _set_inst(self, ids):
         self.inst = ids; self.fill(self.results); return False
     # -- pills
@@ -145,6 +197,7 @@ class Store(OsbWindow):
         self.token += 1; tok = self.token; self.status.set_text('Searching for “%s”…' % q)
         def w():
             res = []
+            if self.mode in ('all', 'flathub') and have('flatpak') and not _fh['ready']: ensure_flathub()
             if self.mode in ('all', 'flathub'): res += flatpak_search(q)
             if self.mode in ('all', 'snap'): res += snap_search(q)
             GLib.idle_add(self._got, tok, q, res)
@@ -152,6 +205,7 @@ class Store(OsbWindow):
     def _got(self, tok, q, res):
         if tok != self.token: return False
         offline = not res and not (have('flatpak') or have('snap'))
+        if not res and have('flatpak') and not _fh['ready'] and _fh['err']: self.results = res; self.status.set_text('Cannot reach Flathub: %s' % _fh['err'][:80]); self.fill(res); return False
         self.results = res
         self.status.set_text('%d results for “%s”' % (len(res), q) if res else ('No store is installed on this system' if offline else 'No results for “%s” (check the internet connection)' % q))
         self.fill(res); return False
@@ -178,9 +232,20 @@ class Store(OsbWindow):
     # -- install / remove
     def act(self, a, isin):
         if self.busy: self.status.set_text('Please wait, another job is running…'); return
-        self.busy = True; verb = 'Removing' if isin else 'Installing'; self.status.set_text('%s %s… this can take a few minutes' % (verb, a['name'])); self.bar.show(); self.bar.start()
+        pw = None
+        if a['src'] == 'snap':
+            pw = ask_password(self, 'Software', 'Type your account password to %s %s.' % ('remove' if isin else 'install', a['name']), 'Continue')
+            if pw is None: return
+        self.busy = True; verb = 'Removing' if isin else 'Installing'; self.job = '%s %s' % (verb, a['name']); self.status.set_text(self.job + '… starting'); self.bar.show(); self.bar.set_fraction(None); self.bar.start()
+        def on_line(t):
+            m = re.search(r'(\d{1,3})%', t)
+            def ui():
+                if m: self.bar.set_fraction(min(1.0, int(m.group(1)) / 100.0)); self.status.set_text('%s… %s%%' % (self.job, m.group(1)))
+                else: self.status.set_text('%s… %s' % (self.job, re.sub(r'[^\w\s\.\-/:()]+', '', t)[:70].strip()))
+                return False
+            GLib.idle_add(ui)
         def w():
-            rc, out, err = (do_remove if isin else do_install)(a); GLib.idle_add(self.finished, a, isin, rc, (err or out).strip())
+            rc, msg = (do_remove if isin else do_install)(a, on_line, pw); GLib.idle_add(self.finished, a, isin, rc, msg)
         threading.Thread(target=w, daemon=True).start()
     def finished(self, a, isin, rc, msg):
         self.busy = False; self.bar.stop(); self.bar.hide()
@@ -190,7 +255,8 @@ class Store(OsbWindow):
             if self.mode == 'installed': self.show_installed()
             else: self.fill(self.results)
         else:
-            self.status.set_text('Failed: ' + (msg.splitlines()[-1][:90] if msg else 'unknown error'))
+            m = (msg or '').strip(); hint = ' (check the internet connection)' if re.search(r'connect|resolve|network|timed out|unable to load|summary', m, re.I) else ''
+            self.status.set_text('Failed: ' + (m[:80] if m else 'unknown error') + hint)
         return False
 
 def main():

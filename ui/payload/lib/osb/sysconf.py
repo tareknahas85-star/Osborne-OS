@@ -33,9 +33,14 @@ def set_lang(v): os.makedirs(CONF, exist_ok=True); open(os.path.join(CONF, 'lang
 NIGHT_DEFAULT = {'mode': 'off', 'temp': 4000}   # off | on | auto (20:00-06:00)
 def get_night(): return _load('nightlight.json', NIGHT_DEFAULT)
 def set_night(d): _save('nightlight.json', d)
+_night_last = [None]
 def apply_night():
+    """Warm the screen colours. Only talks to the display when the wanted state changed, so there is no flicker every minute."""
     d = get_night(); h = time.localtime().tm_hour
     on = d['mode'] == 'on' or (d['mode'] == 'auto' and (h >= 20 or h < 6))
+    want = ('on', int(d['temp'])) if on else ('off', 0)
+    if want == _night_last[0] or (want[0] == 'off' and _night_last[0] is None): _night_last[0] = want; return
+    _night_last[0] = want
     if on: subprocess.Popen(['redshift', '-P', '-O', str(int(d['temp']))], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else: subprocess.Popen(['redshift', '-x'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

@@ -1,5 +1,5 @@
 """Osborne shell - shared theme, icons and widgets (matches the HeroUI Linux Desktop design)."""
-import os, sys, math, colorsys
+import os, sys, math, colorsys, subprocess
 import gi
 gi.require_version('Gtk', '3.0'); gi.require_version('Gdk', '3.0')
 gi.require_version('GdkPixbuf', '2.0'); gi.require_version('Pango', '1.0'); gi.require_version('PangoCairo', '1.0')
@@ -80,7 +80,7 @@ def set_accent(hexc):
 import json
 DOCKFILE = os.path.join(CONF, 'dock.json'); BARFILE = os.path.join(CONF, 'topbar.json')
 DOCK_DEFAULT = dict(items=['apps', 'files', 'browser', 'terminal', 'calculator', 'settings'], size='medium', trash=True)
-BAR_DEFAULT = dict(activities=True, appname=True, lang=True, bell=True, wifi=True, vol=True, bat=True, clock=True)
+BAR_DEFAULT = dict(activities=True, appname=True, lang=True, bell=True, wifi=True, vol=True, bat=True, clock=True, clock_pos='right', cpu=False, ram=False, net=False)
 def load_json(path, default):
     d = dict(default)
     try:
@@ -341,6 +341,24 @@ def new_menu():
         tl.set_app_paintable(True)
     except Exception as e: print('menu', e, file=sys.stderr)
     return m
+
+def style_combo(cb):
+    """Give a ComboBox's drop-down list a transparent window so its rounded corners do not show black corners."""
+    try:
+        acc = cb.get_popup_accessible(); menu = acc.get_widget() if acc is not None and hasattr(acc, 'get_widget') else None
+        if menu is None: return
+        tl = menu.get_toplevel(); vis = tl.get_screen().get_rgba_visual()
+        if vis and not tl.get_realized(): tl.set_visual(vis)
+        tl.set_app_paintable(True)
+    except Exception as e: print('combo', e, file=sys.stderr)
+
+def sudo_verify(pw):
+    """Return '' when the password works for sudo, otherwise a short message."""
+    try:
+        r = subprocess.run(['sudo', '-S', '-k', '-p', '', 'true'], input=pw + '\n', capture_output=True, text=True, timeout=20)
+        if r.returncode == 0: return ''
+        return 'This account is not allowed to do that.' if 'not in the sudoers' in (r.stderr or '') else 'Wrong password. Try again.'
+    except Exception as e: return 'Could not check the password.'
 
 def gradient_tile(cr, w, h, r, stops, angle=135, shadow=True):
     """Dock-icon tile: rounded gradient + soft top highlight."""
@@ -611,3 +629,38 @@ class Switch(Gtk.DrawingArea):
         if e.type != Gdk.EventType.BUTTON_PRESS or e.button != 1: return True
         self.set_on(not self.on); (self.cb(self.on) if self.cb else None); return True
     def set_on(self, v): self.on = bool(v); self.queue_draw()
+
+class PasswordDialog(OsbWindow):
+    """Themed replacement for the system password prompt. run() returns the password, or None if cancelled."""
+    draggable = True
+    def __init__(self, parent, title, text, ok_label='OK', verify=None):
+        cw, ch, m = px(400), px(226), px(36)
+        super().__init__(cw, ch, m, Gdk.WindowTypeHint.DIALOG, title)
+        self.verify = verify; self.result = None; self.set_modal(True); self.set_keep_above(True); self.set_skip_taskbar_hint(False)
+        if parent is not None: self.set_transient_for(parent); self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
+        else: self.set_position(Gtk.WindowPosition.CENTER)
+        self.shadow = (24, 10, 30); self.put(Box('panel', cw, ch), 0, 0)
+        self.put(Box('qsicon', px(34), px(34)), px(24), px(22)); self.put(Icon('lock', px(19), '#ffffff', 1.7), px(31), px(29))
+        self.put(make_label(title, 15, 'semibold', 'text', w=px(310), h=px(24)), px(70), px(26))
+        t = make_label(text, 10, 'normal', 'muted', w=px(352), h=px(34)); t.set_line_wrap(True); t.set_single_line_mode(False); t.set_ellipsize(Pango.EllipsizeMode.NONE); t.set_yalign(0); self.put(t, px(24), px(68))
+        self.entry = Gtk.Entry(); self.entry.set_visibility(False); self.entry.set_size_request(px(352), px(38)); self.entry.set_placeholder_text(_tr('Password'))
+        self.entry.connect('activate', lambda *a: self.go()); self.put(self.entry, px(24), px(108))
+        self.msg = make_label('', 9.5, 'normal', '#f2616c', w=px(352), h=px(16)); self.put(self.msg, px(26), px(150))
+        bc = Gtk.Button(label=_tr('Cancel')); bc.set_size_request(px(110), px(36)); bc.connect('clicked', lambda *a: self.destroy()); self.put(bc, px(166), px(176))
+        self.okb = Gtk.Button(label=_tr(ok_label)); self.okb.set_size_request(px(110), px(36)); self.okb.get_style_context().add_class('suggested-action'); self.okb.connect('clicked', lambda *a: self.go()); self.put(self.okb, px(286), px(176))
+        self.connect('key-press-event', lambda w, e: (self.destroy(), True)[-1] if e.keyval == Gdk.KEY_Escape else False)
+    def go(self):
+        pw = self.entry.get_text()
+        if not pw: self.msg.set_text(_tr('Type your password.')); return
+        if self.verify:
+            self.msg.set_text(_tr('Checking…')); self.okb.set_sensitive(False)
+            while Gtk.events_pending(): Gtk.main_iteration()
+            err = self.verify(pw); self.okb.set_sensitive(True)
+            if err: self.msg.set_text(_tr(err)); self.entry.set_text(''); self.entry.grab_focus(); return
+        self.result = pw; self.destroy()
+    def run(self):
+        loop = GLib.MainLoop(); self.connect('destroy', lambda *a: loop.quit())
+        self.show_all(); self.present(); self.entry.grab_focus(); loop.run(); return self.result
+
+def ask_password(parent, title, text, ok_label='OK', verify=sudo_verify):
+    return PasswordDialog(parent, title, text, ok_label, verify).run()
