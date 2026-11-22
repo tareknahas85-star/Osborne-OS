@@ -53,7 +53,13 @@ def latest_sha():
         d = json.loads(get('%s/v1/package/resolve/gh/%s/%s@%s' % (DATA, OWNER, REPO, BRANCH))); v = d.get('version', '')
         if not re.fullmatch(r'[0-9a-f]{40}', v): raise IOError('jsdelivr gave no commit id')
         return v
-    return first('finding the latest version', [via_api, via_cdn])
+    def via_git():
+        # plain git protocol over https: not rate limited like the REST API and never stale like a CDN
+        t = get('https://github.com/%s/%s.git/info/refs?service=git-upload-pack' % (OWNER, REPO), headers={'User-Agent': 'git/2.43'}).decode('latin-1')
+        m = re.search(r'([0-9a-f]{40}) refs/heads/%s\b' % re.escape(BRANCH), t)
+        if not m: raise IOError('git refs had no %s' % BRANCH)
+        return m.group(1)
+    return first('finding the latest version', [via_api, via_git, via_cdn])
 
 def list_files(sha):
     def via_api():
