@@ -344,4 +344,7 @@ AR = {
 'Connecting to Flathub… (first time can take a minute)': 'عم نتصل بـ Flathub… (أول مرة بتاخد دقيقة)',
 'Popular apps': 'تطبيقات مشهورة',
 'Could not check for updates (GitHub is not answering). You can still try "Update now".': 'ما قدرت أتحقق من التحديثات (GitHub ما عم يرد). فيك تجرب "حدّث هلأ" بكل الأحوال.',
+'Window transparency': 'شفافية النوافذ',
+'Unfocused windows': 'النوافذ غير المفعّلة',
+'Makes windows you are not using see-through. Slide right for solid.': 'بتخلي النوافذ اللي مش عم تستخدمها شفافة. حرّك الشريط لليمين لحد ما تصير مصمتة.',
 }

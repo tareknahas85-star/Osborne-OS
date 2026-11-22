@@ -1,7 +1,18 @@
 #!/bin/sh
 # Start the compositor: OpenGL first, plain XRender if that fails.
+# Window transparency: ~/.config/osborne/opacity holds 50-99 (unfocused windows); 100 or missing = off.
 pkill -x picom 2>/dev/null
 C="$HOME/.config/osborne/picom.conf"
+O="$HOME/.config/osborne/opacity"
+v=$(tr -cd '0-9' < "$O" 2>/dev/null)
+if [ -n "$v" ] && [ "$v" -ge 50 ] && [ "$v" -lt 100 ]; then
+  C="${XDG_RUNTIME_DIR:-/tmp}/osb-picom.conf"
+  cp "$HOME/.config/osborne/picom.conf" "$C"
+  printf 'inactive-opacity = 0.%s;\n' "$v" >> "$C"
+  cat >> "$C" <<'EOF2'
+opacity-rule = [ "100:window_type = 'dock'", "100:window_type = 'desktop'" ];
+EOF2
+fi
 picom --config "$C" --backend glx -b 2>/dev/null
 sleep 2
 pgrep -x picom >/dev/null || picom --config "$C" --backend xrender -b

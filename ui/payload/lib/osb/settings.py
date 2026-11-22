@@ -346,6 +346,20 @@ class SettingsWin(OsbWindow):
                 return False
             da.connect('draw', dr); da.connect('button-press-event', lambda w, e, hx=hx: (self.pick_accent(hx), True)[-1]); self.page.put(da, px(2) + i * (sw_ + px(8)), px(self.y))
         self.y += 62; self.note('Changes buttons, highlights, switches and selections across the whole system.')
+        # ---- window transparency (unfocused windows)
+        opf = os.path.join(CONF, 'opacity')
+        try: ov = max(50, min(100, int(open(opf).read().strip())))
+        except Exception: ov = 100
+        def op_set(x):
+            v = int(round(50 + 50 * max(0.0, min(1.0, x))))
+            try:
+                if v >= 100:
+                    if os.path.exists(opf): os.remove(opf)
+                else: open(opf, 'w').write(str(v))
+            except Exception: pass
+            subprocess.Popen(['osb-compositor'], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.sect('Window transparency')
+        self.row('Unfocused windows', 'Makes windows you are not using see-through. Slide right for solid.', Slider(px(260), (ov - 50) / 50.0, None, op_set), rw=270, h=52)
         # ---- dock
         dock = load_dock()
         self.sect('Dock')
