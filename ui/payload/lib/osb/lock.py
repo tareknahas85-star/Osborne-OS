@@ -30,7 +30,12 @@ class Lock(Gtk.Window):
         self.ent = Gtk.Entry(); self.ent.set_visibility(False); self.ent.set_placeholder_text('Password'); self.ent.set_has_frame(False); self.ent.set_size_request(px(250), px(34))
         self.ent.get_style_context().add_class('lockentry'); self.ent.connect('activate', self.go); fx.put(self.ent, cx - px(125), y + px(114))
         self.err = make_label('', 10.5, 'normal', '#ef4444', xalign=0.5, w=px(300), h=px(16)); fx.put(self.err, cx - px(150), y + px(162))
-        self.tick(); GLib.timeout_add_seconds(1, self.tick); self.connect('map-event', self.grab); self.connect('key-press-event', lambda w, e: self.ent.grab_focus() or False)
+        self.tick(); GLib.timeout_add_seconds(1, self.tick); self.connect('map-event', self.grab); self.connect('key-press-event', self.on_key)
+    def on_key(self, w, e):
+        # keep typing in the entry; grab_focus() would select all text, so the next key replaces it
+        if not self.ent.has_focus():
+            self.ent.grab_focus(); self.ent.set_position(-1)
+        return False
     def draw(self, w, cr):
         if self.surf is None or self.sm != State.mode: self.surf = render_wall(self.w, self.h, State.mode); self.sm = State.mode
         cr.set_source_surface(self.surf, 0, 0); cr.paint(); cr.set_source_rgba(*hex2rgb(pal('win'))[:3], 0.35); cr.paint(); return False
@@ -41,7 +46,7 @@ class Lock(Gtk.Window):
             try:
                 seat = Gdk.Display.get_default().get_default_seat(); seat.grab(self.get_window(), Gdk.SeatCapabilities.ALL, True, None, None, None)
             except Exception: pass
-            self.ent.grab_focus(); return False
+            self.ent.grab_focus(); self.ent.set_position(-1); return False
         GLib.timeout_add(300, g)
     def go(self, *a):
         pw = self.ent.get_text(); self.ent.set_sensitive(False); self.err.set_text('Checking…')
@@ -54,7 +59,7 @@ class Lock(Gtk.Window):
             try: Gdk.Display.get_default().get_default_seat().ungrab()
             except Exception: pass
             Gtk.main_quit(); return
-        self.ent.set_sensitive(True); self.ent.set_text(''); self.ent.grab_focus(); self.err.set_text('Wrong password, try again')
+        self.ent.set_sensitive(True); self.ent.set_text(''); self.ent.grab_focus(); self.ent.set_position(-1); self.err.set_text('Wrong password, try again')
 
 def main():
     if subprocess.run(['pgrep', '-fc', 'python.*osb-lock'], capture_output=True, text=True).stdout.strip() not in ('0', '1'): return
