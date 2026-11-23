@@ -108,12 +108,28 @@ SYRIAN = {
               track='#3d3a3b', seg='#161616', storebg='#1c1a1b', bar='#edebe0', iconmuted='#a09a86', panel='rgba(31,29,30,0.96)', panelb='rgba(255,255,255,0.08)',
               tray='rgba(38,15,20,0.78)', trayb='rgba(255,255,255,0.10)', emblem_front='#b9a779', emblem_back='#428177'),
 }
+# Deep Umber (from syrian.zone/syid palette: #6b1f2a / #4a151e / #260f14, Golden Wheat #b9a779 as the accent). Dark-only identity.
+UMBER = {
+ 'dark': dict(win='#260f14', sidebar='#4a151e', border='#6b1f2a', text='#edebe0', muted='#b9a779', primary='#b9a779', card='#2e1319', row='#3a1820',
+              track='#4a151e', seg='#1a0a0e', storebg='#2a1118', bar='#edebe0', iconmuted='#b9a779', panel='rgba(38,15,20,0.96)', panelb='rgba(255,255,255,0.08)',
+              tray='rgba(74,21,30,0.78)', trayb='rgba(255,255,255,0.10)', emblem_front='#b9a779', emblem_back='#6b1f2a'),
+}
+# Charcoal (from syrian.zone/syid palette: #161616 / #3d3a3b / #ffffff). Dark-only identity.
+CHARCOAL = {
+ 'dark': dict(win='#161616', sidebar='#1f1d1e', border='#3d3a3b', text='#edebe0', muted='#a8a6a0', primary='#ffffff', card='#1f1d1e', row='#262425',
+              track='#3d3a3b', seg='#0f0f0f', storebg='#1a1a1a', bar='#edebe0', iconmuted='#a8a6a0', panel='rgba(22,22,22,0.96)', panelb='rgba(255,255,255,0.08)',
+              tray='rgba(31,29,30,0.78)', trayb='rgba(255,255,255,0.10)', emblem_front='#ffffff', emblem_back='#3d3a3b'),
+}
+IDENTITIES = {'syrian': SYRIAN, 'umber': UMBER, 'charcoal': CHARCOAL}
+DARK_ONLY_IDENTITIES = ('umber', 'charcoal')
 _CUR_ID = None
 def get_identity():
-    try: return 'syrian' if open(IDENTFILE).read().strip() == 'syrian' else 'osborne'
+    try:
+        v = open(IDENTFILE).read().strip()
+        return v if v in IDENTITIES else 'osborne'
     except Exception: return 'osborne'
 def set_identity(v):
-    os.makedirs(CONF, exist_ok=True); open(IDENTFILE, 'w').write('syrian' if v == 'syrian' else 'osborne')
+    os.makedirs(CONF, exist_ok=True); open(IDENTFILE, 'w').write(v if v in IDENTITIES else 'osborne')
 def apply_theme_state():
     """Rebuild the palettes for the chosen identity (Osborne or Syrian) and the chosen accent colour."""
     global _CUR_ID
@@ -121,12 +137,18 @@ def apply_theme_state():
     ACC.update(base='#ff8a3d', top='#ffa26b', glow='rgba(255,138,61,0.38)')
     apply_accent()
     _CUR_ID = get_identity()
-    if _CUR_ID == 'syrian':
-        for m in ('light', 'dark'):
-            P[m].update(SYRIAN[m])
+    if _CUR_ID in IDENTITIES:
+        data = IDENTITIES[_CUR_ID]
+        for m in data:
+            P[m].update(data[m])
             P[m]['pill'] = P[m]['tile'] = mix_hex(P[m]['primary'], P[m]['win'], 0.9 if m == 'light' else 0.78)
         # buttons use one colour for both modes (ACC is shared): deep forest keeps white text readable on light and dark
-        ACC.update(base='#054239', top=mix_hex('#054239', '#ffffff', 0.16), glow='rgba(5,66,57,0.30)')
+        if _CUR_ID == 'syrian':
+            ACC.update(base='#054239', top=mix_hex('#054239', '#ffffff', 0.16), glow='rgba(5,66,57,0.30)')
+        elif _CUR_ID == 'umber':
+            ACC.update(base='#6b1f2a', top=mix_hex('#6b1f2a', '#ffffff', 0.16), glow='rgba(107,31,42,0.34)')
+        else:
+            ACC.update(base='#3d3a3b', top=mix_hex('#3d3a3b', '#ffffff', 0.16), glow='rgba(61,58,59,0.34)')
     return _CUR_ID
 
 def hex2rgb(h):

@@ -297,6 +297,21 @@ class SettingsWin(OsbWindow):
             ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(self.PWd // 2 - px(12), px(110)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             ev.connect('button-press-event', lambda w, e, m=mode, idt=ident: (self.set_theme(m, idt), True)[-1]); self.page.put(ev, x, px(y))
         self.y += 244
+        # Syrian palette options: Forest & Wheat (default) or Deep Umber, shown under the Syrian themes
+        ident = get_identity(); gap = px(6); w_ = (self.PWd - px(8) - 2 * gap) // 3
+        self.page.put(make_label('Syrian palette', 10, 'semibold', 'muted', w=px(300), h=px(16)), px(2), px(self.y))
+        self.y += 22
+        for i, (idt, label, sub) in enumerate((('syrian', 'Forest & Wheat', 'Light and dark, default Syrian'),
+                                               ('umber', 'Deep Umber', 'Dark only, deep umber'),
+                                               ('charcoal', 'Charcoal', 'Dark only, charcoal'))):
+            on = ident == idt; x = px(2) + i * (w_ + gap)
+            self.page.put(Box('pill' if on else 'qstile', w_, px(64)), x, px(self.y))
+            self.page.put(make_label(label, 10.5, 'semibold', 'primary' if on else 'text', w=w_ - px(24), h=px(18)), x + px(12), px(self.y + 10))
+            self.page.put(make_label(sub, 8.5, 'normal', 'muted', w=w_ - px(24), h=px(14)), x + px(12), px(self.y + 34))
+            ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(w_, px(64)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            ev.connect('button-press-event', lambda w, e, idt=idt: (self.set_theme('dark' if idt in DARK_ONLY_IDENTITIES else State.mode, idt), True)[-1])
+            self.page.put(ev, x, px(self.y))
+        self.y += 80
         self.note('The whole system follows this choice: apps, menus, window titles, terminal and notifications.')
         self.page.put(make_label('Wallpaper', 12, 'semibold', 'text', w=px(300), h=px(20)), px(2), px(self.y))
         addb = self.btn('Add my picture…', self.add_wall); addb.set_size_request(px(170), px(32)); self.page.put(addb, self.PWd - px(180), px(self.y - 6)); self.y += 38

@@ -16,6 +16,8 @@ AR = {
 'Syrian Dark': 'سوري غامق',
 'Syrian identity colours': 'ألوان الهوية السورية',
 'Syrian identity, dark': 'الهوية السورية، غامق',
+'Deep Umber': 'البني العميق',
+'Syrian identity, deep umber': 'الهوية السورية، بني عميق',
 'Apps': 'التطبيقات',
 'Arabic': 'العربية',
 'Ask for the password when you are away': 'اطلب كلمة السر لما تكون بعيد',
