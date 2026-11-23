@@ -285,14 +285,19 @@ class SettingsWin(OsbWindow):
         GLib.timeout_add(600, lambda: (self.destroy(), False)[-1])
     def p_appearance(self):
         self.sect('Theme', 0)
-        for i, (mode, label, sub) in enumerate((('light', 'Light', 'Bright and clean'), ('dark', 'Dark', 'Easy on the eyes'))):
-            on = State.mode == mode; x = i * (self.PWd // 2 - px(2))
-            card = Box('qstile' if not on else 'pill', self.PWd // 2 - px(12), px(110)); self.page.put(card, x, px(self.y))
-            self.page.put(Icon('sun' if mode == 'light' else 'moon', px(28), 'primary' if on else 'text', 1.6), x + px(20), px(self.y + 18))
-            self.page.put(make_label(label, 12, 'semibold', 'primary' if on else 'text', w=px(200), h=px(20)), x + px(20), px(self.y + 58)); self.page.put(make_label(sub, 9.5, 'normal', 'muted', w=px(200), h=px(14)), x + px(20), px(self.y + 80))
+        themes = (('light', 'osborne', 'Light', 'Bright and clean'), ('dark', 'osborne', 'Dark', 'Easy on the eyes'),
+                  ('light', 'syrian', 'Syrian Light', 'Syrian identity colours'), ('dark', 'syrian', 'Syrian Dark', 'Syrian identity, dark'))
+        for i, (mode, ident, label, sub) in enumerate(themes):
+            on = State.mode == mode and get_identity() == ident
+            col = i % 2; row = i // 2; x = col * (self.PWd // 2 - px(2)); y = self.y + row * 122
+            card = Box('qstile' if not on else 'pill', self.PWd // 2 - px(12), px(110)); self.page.put(card, x, px(y))
+            self.page.put(Icon('sun' if mode == 'light' else 'moon', px(28), 'primary' if on else 'text', 1.6), x + px(20), px(y + 18))
+            self.page.put(make_label(label, 12, 'semibold', 'primary' if on else 'text', w=px(200), h=px(20)), x + px(20), px(y + 58))
+            self.page.put(make_label(sub, 9.5, 'normal', 'muted', w=px(200), h=px(14)), x + px(20), px(y + 80))
             ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(self.PWd // 2 - px(12), px(110)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-            ev.connect('button-press-event', lambda w, e, m=mode: (self.set_theme(m), True)[-1]); self.page.put(ev, x, px(self.y))
-        self.y += 128; self.note('The whole system follows this choice: apps, menus, window titles, terminal and notifications.')
+            ev.connect('button-press-event', lambda w, e, m=mode, idt=ident: (self.set_theme(m, idt), True)[-1]); self.page.put(ev, x, px(y))
+        self.y += 244
+        self.note('The whole system follows this choice: apps, menus, window titles, terminal and notifications.')
         self.page.put(make_label('Wallpaper', 12, 'semibold', 'text', w=px(300), h=px(20)), px(2), px(self.y))
         addb = self.btn('Add my picture…', self.add_wall); addb.set_size_request(px(170), px(32)); self.page.put(addb, self.PWd - px(180), px(self.y - 6)); self.y += 38
         opts = [('default', 'Default')] + [('builtin:' + k, k.capitalize()) for k in WALLS]
@@ -330,8 +335,8 @@ class SettingsWin(OsbWindow):
     def run_theme(self, m):
         try: subprocess.Popen(['osb-apply-theme', m])
         except Exception as e: print('apply-theme', e, file=sys.stderr)
-    def set_theme(self, m):
-        State.mode = m; set_mode(m); apply_css(m); restyle_labels(); self.run_theme(m); self.show('appearance', True)
+    def set_theme(self, m, ident='osborne'):
+        State.mode = m; set_identity(ident); set_mode(m); apply_theme_state(); apply_css(m); restyle_labels(); self.run_theme(m); self.show('appearance', True)
         for w in Gtk.Window.list_toplevels(): w.queue_draw()
     def p_customize(self):
         from .shell import BUILTIN, item_label

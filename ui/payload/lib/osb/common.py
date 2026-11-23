@@ -1,5 +1,5 @@
 """Osborne shell - shared theme, icons and widgets (matches the HeroUI Linux Desktop design)."""
-import os, sys, math, colorsys, subprocess
+import os, sys, math, colorsys, subprocess, copy
 import gi
 gi.require_version('Gtk', '3.0'); gi.require_version('Gdk', '3.0')
 gi.require_version('GdkPixbuf', '2.0'); gi.require_version('Pango', '1.0'); gi.require_version('PangoCairo', '1.0')
@@ -95,7 +95,39 @@ def load_bar(): return load_json(BARFILE, BAR_DEFAULT)
 
 class State: mode = 'light'
 def pal(k): return P[State.mode][k]
+_BASE = copy.deepcopy(P)   # the untouched Osborne palettes; everything else is layered on top of these
 apply_accent()
+
+# ------------------------------------------------------------------ identity themes (Osborne = default, Syrian identity)
+IDENTFILE = os.path.join(CONF, 'identity')
+SYRIAN = {
+ 'light': dict(win='#ffffff', sidebar='#f6f4ec', border='#d6d1bd', text='#161616', muted='#6b6a5f', primary='#054239', card='#ffffff', row='#f3f1e8',
+               track='#e2dfd0', seg='#ffffff', storebg='#ffffff', bar='#161616', iconmuted='#6b6a5f', panel='rgba(255,255,255,0.94)', panelb='rgba(255,255,255,0.9)',
+               tray='rgba(255,255,255,0.72)', trayb='rgba(255,255,255,0.9)', emblem_front='#054239', emblem_back='#b9a779'),
+ 'dark': dict(win='#1f1d1e', sidebar='#260f14', border='#3d3a3b', text='#edebe0', muted='#a09a86', primary='#b9a779', card='#221f20', row='#2a2526',
+              track='#3d3a3b', seg='#161616', storebg='#1c1a1b', bar='#edebe0', iconmuted='#a09a86', panel='rgba(31,29,30,0.96)', panelb='rgba(255,255,255,0.08)',
+              tray='rgba(38,15,20,0.78)', trayb='rgba(255,255,255,0.10)', emblem_front='#b9a779', emblem_back='#428177'),
+}
+_CUR_ID = None
+def get_identity():
+    try: return 'syrian' if open(IDENTFILE).read().strip() == 'syrian' else 'osborne'
+    except Exception: return 'osborne'
+def set_identity(v):
+    os.makedirs(CONF, exist_ok=True); open(IDENTFILE, 'w').write('syrian' if v == 'syrian' else 'osborne')
+def apply_theme_state():
+    """Rebuild the palettes for the chosen identity (Osborne or Syrian) and the chosen accent colour."""
+    global _CUR_ID
+    for m in P: P[m] = copy.deepcopy(_BASE[m])
+    ACC.update(base='#ff8a3d', top='#ffa26b', glow='rgba(255,138,61,0.38)')
+    apply_accent()
+    _CUR_ID = get_identity()
+    if _CUR_ID == 'syrian':
+        for m in ('light', 'dark'):
+            P[m].update(SYRIAN[m])
+            P[m]['pill'] = P[m]['tile'] = mix_hex(P[m]['primary'], P[m]['win'], 0.9 if m == 'light' else 0.78)
+        # buttons use one colour for both modes (ACC is shared): deep forest keeps white text readable on light and dark
+        ACC.update(base='#054239', top=mix_hex('#054239', '#ffffff', 0.16), glow='rgba(5,66,57,0.30)')
+    return _CUR_ID
 
 def hex2rgb(h):
     if h.startswith('rgba'):
@@ -153,7 +185,7 @@ def apply_css(mode):
     _providers['p'] = prov
 
 def init_mode():
-    State.mode = get_mode(); apply_css(State.mode)
+    State.mode = get_mode(); apply_theme_state(); apply_css(State.mode)
 
 # ------------------------------------------------------------------ icons (24x24 line icons)
 def _gear():
@@ -285,11 +317,15 @@ class Icon(Gtk.DrawingArea):
         draw_icon(cr, self.name, 0, 0, self.size, col, self.stroke); return False
     def set_name_(self, name): self.name = name; self.queue_draw()
 
-def draw_emblem(cr, x, y, size, col):
-    """Osborne emblem: two overlapping rounded panels (the chosen logo mark)."""
+def draw_emblem(cr, x, y, size, col, back=None):
+    """Osborne emblem: two overlapping rounded panels (the chosen logo mark).
+    back = optional colour for the back panel (used by the Syrian identity themes); otherwise it is the front colour at half strength."""
     cr.save(); cr.translate(x, y); rgb = hex2rgb(col) if isinstance(col, str) else col
     k = size * 0.9 / 440.0; ox = size * 0.05; oy = (size - 340 * k) / 2.0
-    cr.set_source_rgba(rgb[0], rgb[1], rgb[2], rgb[3] * 0.5 if len(rgb) > 3 else 0.5)
+    if back:
+        b = hex2rgb(back); cr.set_source_rgba(b[0], b[1], b[2], 1.0)
+    else:
+        cr.set_source_rgba(rgb[0], rgb[1], rgb[2], rgb[3] * 0.5 if len(rgb) > 3 else 0.5)
     rounded_rect(cr, ox, oy, 300 * k, 220 * k, 46 * k); cr.fill()
     cr.set_source_rgba(rgb[0], rgb[1], rgb[2], rgb[3] if len(rgb) > 3 else 1.0)
     rounded_rect(cr, ox + 140 * k, oy + 120 * k, 300 * k, 220 * k, 46 * k); cr.fill(); cr.restore()
@@ -298,7 +334,10 @@ class Emblem(Gtk.DrawingArea):
     def __init__(self, size, color='bar'):
         super().__init__(); self.size, self.color = size, color; self.set_size_request(int(size), int(size)); self.connect('draw', self._d)
     def _d(self, w, cr):
-        col = pal(self.color) if not self.color.startswith('#') else self.color; draw_emblem(cr, 0, 0, self.size, col); return False
+        col = pal(self.color) if not self.color.startswith('#') else self.color
+        if self.color == 'bar': draw_emblem(cr, 0, 0, self.size, P[State.mode].get('emblem_front', col), P[State.mode].get('emblem_back'))
+        else: draw_emblem(cr, 0, 0, self.size, col)
+        return False
 
 def beep():
     import subprocess
@@ -616,7 +655,8 @@ def watch_mode(cb):
     m = f.monitor_file(Gio.FileMonitorFlags.NONE, None); _mon.append(m)
     def ch(*a):
         nm = get_mode()
-        if nm != State.mode: State.mode = nm; apply_css(nm); restyle_labels(); cb(nm)
+        if nm != State.mode or get_identity() != _CUR_ID:
+            State.mode = nm; apply_theme_state(); apply_css(nm); restyle_labels(); cb(nm)
     m.connect('changed', ch)
 
 
