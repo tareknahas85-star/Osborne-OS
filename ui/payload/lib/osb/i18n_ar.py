@@ -256,6 +256,7 @@ AR = {
 'Move left': 'حرّك يسار',
 'Move right': 'حرّك يمين',
 'Remove from dock': 'شيل من الدوك',
+'Quit': 'إنهاء البرنامج',
 'Pin to dock': 'ثبّت عالدوك',
 'Close': 'سكّر',
 'Network & VPN': 'الشبكة وVPN',

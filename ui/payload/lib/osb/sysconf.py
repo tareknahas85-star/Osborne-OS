@@ -22,10 +22,24 @@ def get_ui_scale():
 def set_ui_scale(v): os.makedirs(CONF, exist_ok=True); open(os.path.join(CONF, 'scale'), 'w').write('%.2f' % v)
 
 # ---- language
-LANGS = [('en', 'English'), ('ar', 'العربية (شامي)')]
+LANGS = [('en', 'English'), ('ar', 'العربية (شامي)')]   # built-in languages; more are downloaded packs
+LANG_DIR = os.path.join(CONF, 'lang-packs')
+LANG_CATALOG = 'https://raw.githubusercontent.com/tareknahas85-star/Osborne-OS/main/lang/catalog.json'
+def installed_packs():
+    """Downloaded language packs: [(code, name)]. A pack is <code>.json with a '_name' key and English -> translation pairs."""
+    out = []
+    try:
+        for f in sorted(os.listdir(LANG_DIR)):
+            if not f.endswith('.json') or f[:-5] in ('en', 'ar'): continue
+            try: d = json.load(open(os.path.join(LANG_DIR, f))); out.append((f[:-5], d.get('_name', f[:-5])))
+            except Exception: pass
+    except Exception: pass
+    return out
+def languages(): return LANGS + installed_packs()
 def get_lang():
     try:
-        v = open(os.path.join(CONF, 'lang')).read().strip(); return v if v in ('en', 'ar') else 'en'
+        v = open(os.path.join(CONF, 'lang')).read().strip()
+        return v if v in [k for k, _ in languages()] else 'en'
     except Exception: return 'en'
 def set_lang(v): os.makedirs(CONF, exist_ok=True); open(os.path.join(CONF, 'lang'), 'w').write(v)
 

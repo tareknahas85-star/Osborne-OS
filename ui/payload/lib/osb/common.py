@@ -104,9 +104,9 @@ SYRIAN = {
  'light': dict(win='#ffffff', sidebar='#f6f4ec', border='#d6d1bd', text='#161616', muted='#6b6a5f', primary='#054239', card='#ffffff', row='#f3f1e8',
                track='#e2dfd0', seg='#ffffff', storebg='#ffffff', bar='#161616', iconmuted='#6b6a5f', panel='rgba(255,255,255,0.94)', panelb='rgba(255,255,255,0.9)',
                tray='rgba(255,255,255,0.72)', trayb='rgba(255,255,255,0.9)', emblem_front='#054239', emblem_back='#b9a779'),
- 'dark': dict(win='#1f1d1e', sidebar='#260f14', border='#3d3a3b', text='#edebe0', muted='#a09a86', primary='#b9a779', card='#221f20', row='#2a2526',
-              track='#3d3a3b', seg='#161616', storebg='#1c1a1b', bar='#edebe0', iconmuted='#a09a86', panel='rgba(31,29,30,0.96)', panelb='rgba(255,255,255,0.08)',
-              tray='rgba(38,15,20,0.78)', trayb='rgba(255,255,255,0.10)', emblem_front='#b9a779', emblem_back='#428177'),
+ 'dark': dict(win='#002623', sidebar='#001c19', border='#054239', text='#edebe0', muted='#b9a779', primary='#b9a779', card='#054239', row='#063b34',
+              track='#054239', seg='#001a17', storebg='#03332d', bar='#edebe0', iconmuted='#b9a779', panel='rgba(0,38,35,0.96)', panelb='rgba(255,255,255,0.08)',
+              tray='rgba(5,66,57,0.80)', trayb='rgba(255,255,255,0.10)', emblem_front='#b9a779', emblem_back='#428177'),
 }
 # Deep Umber (from syrian.zone/syid palette: #6b1f2a / #4a151e / #260f14, Golden Wheat #b9a779 as the accent). Dark-only identity.
 UMBER = {
@@ -595,7 +595,9 @@ class OsbWindow(Gtk.Window):
         if hint: self.set_type_hint(hint)
         self.fixed = Gtk.Fixed(); self.add(self.fixed)
         self.content = Gtk.Fixed(); self.content.set_size_request(cw, ch); self.fixed.put(self.content, margin, margin)
-        self.connect('realize', self._shape); self.shadow = None; self.connect('draw', self._shadow_draw)
+        # the clickable shape must follow the real size: set it on realize and again whenever the window is (re)allocated,
+        # otherwise the old, larger shape stays and the invisible margin blocks clicks on the windows behind
+        self.connect('realize', self._shape); self.connect('size-allocate', lambda w, a: self._shape()); self.shadow = None; self.connect('draw', self._shadow_draw)
     def _shadow_draw(self, w, cr):
         if not self.shadow: return False
         r, dy, blur = self.shadow; c = hex2rgb(pal('shadow')); N = 24
@@ -650,7 +652,8 @@ def traffic_lights(win, x=16, y=25, on_max=None, parent=None):
     """macOS-style close / minimise / maximise dots that actually work. They sit on the right edge of the window."""
     parent = parent or win
     x0 = win.cw - px(x) - px(54)
-    specs = (('#ff5f57', lambda: win.close()), ('#febc2e', lambda: win.iconify()), ('#28c840', on_max))
+    # left to right: minimise, maximise, close, so reading from the right edge gives close, maximise, minimise
+    specs = (('#febc2e', lambda: win.iconify()), ('#28c840', on_max), ('#ff5f57', lambda: win.close()))
     for i, (col, fn) in enumerate(specs):
         d = Gtk.DrawingArea(); d.set_size_request(px(14), px(14)); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
         d.fn = fn; d.hover = False

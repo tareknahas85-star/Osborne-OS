@@ -28,11 +28,13 @@ class SettingsWin(OsbWindow):
         self.enable_escape(); self.put(Box('win', px(self.W), px(self.H)), 0, 0); self.put(Box('sidebar', px(220), px(self.H)), 0, 0)
         traffic_lights(self, 16, 25)
         self.put(make_label('Settings', 15, 'bold', 'text', w=px(150), h=px(22)), px(22), px(58))
-        self.pill = Box('pill', px(192), px(32)); self.put(self.pill, px(14), px(96)); self.items = {}
+        # compact list so all 17 entries (About included) fit inside the window height
+        STEP = 28
+        self.pill = Box('pill', px(192), px(26)); self.put(self.pill, px(14), px(84)); self.items = {}
         for i, (name, ic, key) in enumerate(CATS):
-            y = 96 + i * 32; icn = Icon(ic, px(17), 'text', 1.5); lab = make_label(name, 11.5, 'medium', 'text', w=px(140), h=px(18))
-            self.put(icn, px(26), px(y + 7)); self.put(lab, px(55), px(y + 7))
-            ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(192), px(32)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            y = 84 + i * STEP; icn = Icon(ic, px(16), 'text', 1.5); lab = make_label(name, 11.5, 'medium', 'text', w=px(140), h=px(18))
+            self.put(icn, px(26), px(y + 5)); self.put(lab, px(55), px(y + 4))
+            ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(192), px(26)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             ev.connect('button-press-event', lambda w, e, k=key: (self.show(k), True)[-1]); self.put(ev, px(14), px(y)); self.items[key] = (icn, lab, y)
         self.sc = Gtk.ScrolledWindow(); self.sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC); self.sc.get_style_context().add_class('osbscroll')
         self.sc.set_size_request(px(self.W - 220 - 20), px(self.H - 100)); self.put(self.sc, px(230), px(88))
@@ -252,8 +254,12 @@ class SettingsWin(OsbWindow):
         self.row('Microphone', 'Input volume', Slider(px(260), v2, lambda x: subprocess.Popen(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SOURCE@', '%.2f' % x])), rw=270)
         self.row('Sound mixer', 'Advanced per-app volume control', self.btn('Open', lambda: subprocess.Popen(['pavucontrol'])), rw=80)
     def p_display(self):
-        try: b = int(sh('osb-brightness get') or 100) / 100.0
-        except Exception: b = 1.0
+        # start the slider at the last level that was set (saved by osb-brightness), falling back to the live reading
+        try: b = int(float(open(os.path.expanduser('~/.config/osborne/brightness')).read().strip())) / 100.0
+        except Exception:
+            try: b = int(float(sh('osb-brightness get') or 100)) / 100.0
+            except Exception: b = 1.0
+        b = max(0.05, min(1.0, b))
         self.row('Brightness', 'Screen brightness', Slider(px(260), b, None, lambda x: subprocess.Popen(['osb-brightness', 'set', '%d' % max(5, round(x * 100))])), rw=270)
         xr = sh('xrandr'); out = re.search(r'^(\S+) connected', xr, re.M)
         if out:
@@ -440,7 +446,9 @@ class SettingsWin(OsbWindow):
         sbtn = self.btn('Search', do_search); sbtn.set_size_request(px(90), px(30))
         srow = Gtk.Box(spacing=8); srow.pack_start(ent, False, False, 0); srow.pack_start(sbtn, False, False, 0)
         self.row('Choose a city', 'Use this instead of automatic detection.', srow, rw=340, h=58)
-        self.page.put(res_box, px(4), px(self.y)); self.y += 10 + 36 * 6
+        # search results sit in a small scrollable area instead of reserving a big empty gap
+        res_sc = Gtk.ScrolledWindow(); res_sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC); res_sc.set_size_request(px(380), px(108)); res_sc.add(res_box)
+        self.page.put(res_sc, px(4), px(self.y)); self.y += 118
         for key, title, sub in (('cpu', 'CPU usage', 'Show how busy the processor is'), ('ram', 'Memory usage', 'Show how much memory is used'), ('net', 'Network speed', 'Show download and upload speed')):
             self.row(title, sub, Switch(bool(bar.get(key)), lambda on, k=key: self.bar_set(k, on)), rw=42, h=52)
         self.note('Tip: right-click the top bar or a dock icon for quick options.')
@@ -536,18 +544,67 @@ class SettingsWin(OsbWindow):
         self.sect('Power')
         self.row('Lock now', 'Lock the screen right away (Super + L)', self.btn('Lock', lambda: subprocess.Popen(['osb-lock'])), rw=80)
         self.row('Sleep', 'Put the device to sleep', self.btn('Sleep', lambda: subprocess.Popen(['systemctl', 'suspend'])), rw=80)
+    def add_language(self):
+        """Lists the languages in the online catalog; English and Arabic are built in, the rest are downloaded packs."""
+        import urllib.request, json as _json
+        dlg = Gtk.Dialog(title='Add a language', transient_for=self, modal=True)
+        dlg.add_button('Close', Gtk.ResponseType.CLOSE); dlg.set_default_size(px(440), px(380))
+        box = dlg.get_content_area(); box.set_spacing(8); box.set_border_width(14)
+        status = Gtk.Label(label='Loading the list…'); status.set_xalign(0); box.pack_start(status, False, False, 0)
+        lst = Gtk.ListBox(); lst.set_selection_mode(Gtk.SelectionMode.NONE)
+        sc = Gtk.ScrolledWindow(); sc.add(lst); box.pack_start(sc, True, True, 0)
+        def fetch(url):
+            with urllib.request.urlopen(url, timeout=10) as r: return r.read()
+        def done_download(code, name, ok, msg):
+            status.set_text(msg)
+            if ok:
+                sysconf.set_lang(code)
+                GLib.timeout_add(900, lambda: os.execv(sys.executable, [sys.executable, sys.argv[0], 'keyboard']))   # reopen in the new language, same as the language switch
+        def download(item, btn):
+            btn.set_sensitive(False); btn.set_label('…')
+            def work():
+                try:
+                    data = _json.loads(fetch(item['url']).decode('utf-8'))
+                    if not isinstance(data, dict) or data.get('_code') not in (None, item['code']): raise ValueError('bad pack')
+                    os.makedirs(sysconf.LANG_DIR, exist_ok=True)
+                    data['_name'] = item['name']
+                    open(os.path.join(sysconf.LANG_DIR, item['code'] + '.json'), 'w', encoding='utf-8').write(_json.dumps(data, ensure_ascii=False))
+                    GLib.idle_add(done_download, item['code'], item['name'], True, 'Installed: ' + item['name'])
+                except Exception as ex:
+                    GLib.idle_add(lambda: (btn.set_sensitive(True), btn.set_label('Download'), status.set_text('Could not download: %s' % ex), False)[-1])
+            threading.Thread(target=work, daemon=True).start()
+        def fill(items):
+            if not items: status.set_text('No languages found online.'); return False
+            status.set_text('Choose a language to download:')
+            for it in items:
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10); row.set_border_width(8)
+                row.pack_start(Gtk.Label(label=it['name'], xalign=0), True, True, 0)
+                b = Gtk.Button(label='Download'); b.connect('clicked', lambda w, i=it: download(i, w)); row.pack_end(b, False, False, 0)
+                lst.add(row)
+            lst.show_all(); return False
+        def load():
+            try:
+                cat = _json.loads(fetch(sysconf.LANG_CATALOG).decode('utf-8'))
+                items = [c for c in cat if isinstance(c, dict) and c.get('code') and c.get('url') and c['code'] not in ('en', 'ar')]
+                GLib.idle_add(fill, items)
+            except Exception as ex:
+                GLib.idle_add(lambda: (status.set_text('Could not reach the language list. Check the internet connection.'), False)[-1])
+        threading.Thread(target=load, daemon=True).start()
+        dlg.show_all(); dlg.run(); dlg.destroy()
     def p_keyboard(self):
         cur = (re.search(r'layout:\s+(\S+)', sh('setxkbmap -query')) or [0, 'us'])[1]
         try: cur = re.search(r'-layout (\S+)', open(os.path.join(CONF, 'keyboard.sh')).read()).group(1)
         except Exception: pass
         have = set(('ara' if c == 'ar' else c) for c in cur.split(','))
         self.sect('Language', 0)
-        cbl = Gtk.ComboBoxText(); [cbl.append_text(n) for k, n in sysconf.LANGS]; cbl.set_active([k for k, n in sysconf.LANGS].index(sysconf.get_lang()))
+        langs = sysconf.languages()
+        cbl = Gtk.ComboBoxText(); [cbl.append_text(n) for k, n in langs]; cbl.set_active([k for k, n in langs].index(sysconf.get_lang()))
         def setl(c):
-            if sysconf.LANGS[c.get_active()][0] == sysconf.get_lang(): return
-            sysconf.set_lang(sysconf.LANGS[c.get_active()][0])
+            if langs[c.get_active()][0] == sysconf.get_lang(): return
+            sysconf.set_lang(langs[c.get_active()][0])
             GLib.timeout_add(700, lambda: os.execv(sys.executable, [sys.executable, sys.argv[0], 'keyboard']))   # reopen Settings in the new language; the top bar and dock reload themselves
         cbl.connect('changed', setl); self.row('Interface language', 'Language of menus, buttons and settings', cbl, rw=170)
+        self.row('Add a language', 'Download more interface languages from the internet', self.btn('Add…', self.add_language), rw=80)
         self.sect('Layouts'); self.note('Press Super + Space or Alt + Shift to switch between the layouts you enable.')
         def apply():
             ls = [l for l in ('us', 'ara') if l in self.have] or ['us']; self.have = set(ls)
@@ -761,9 +818,10 @@ class SettingsWin(OsbWindow):
                 except Exception: pass
                 return False
             da.connect('draw', dr); P.put(da, px(6), px(self.y + 2))
-        P.put(make_label(u.get('name') or u.get('login', ''), 18, 'bold', 'text', w=px(400), h=px(26)), px(96), px(self.y + 6))
-        P.put(make_label('@' + u.get('login', ''), 10.5, 'normal', 'muted', w=px(300), h=px(16)), px(96), px(self.y + 34))
-        P.put(make_label('%s public projects  \u00b7  %s followers' % (u.get('public_repos', 0), u.get('followers', 0)), 10, 'normal', 'muted', w=px(400), h=px(16)), px(96), px(self.y + 54)); self.y += 86
+        tw = self.PWd - px(120)   # text stays inside the page width
+        P.put(make_label(u.get('name') or u.get('login', ''), 18, 'bold', 'text', w=tw, h=px(26)), px(96), px(self.y + 6))
+        P.put(make_label('@' + u.get('login', ''), 10.5, 'normal', 'muted', w=tw, h=px(16)), px(96), px(self.y + 34))
+        P.put(make_label('%s public projects  \u00b7  %s followers' % (u.get('public_repos', 0), u.get('followers', 0)), 10, 'normal', 'muted', w=tw, h=px(16)), px(96), px(self.y + 54)); self.y += 86
         for t, v in (('Bio', u.get('bio')), ('Location', u.get('location')), ('Website', u.get('blog'))):
             if v: self.row(t, v, None, h=54)
         self.row('GitHub profile', u.get('html_url', ''), self.btn('Open', lambda: subprocess.Popen(['xdg-open', u.get('html_url', '')], start_new_session=True)), rw=80)

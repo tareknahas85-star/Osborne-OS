@@ -405,8 +405,23 @@ class Dock(OsbWindow):
             if 0 <= i and 0 <= j < len(its): its[i], its[j] = its[j], its[i]; save()
         def remove():
             if len(its) > 1 and i >= 0: its.pop(i); save()
+        # windows of this app that are open right now (for Quit)
+        wids = []
+        try:
+            from . import reopen
+            exe = None
+            if item not in BUILTIN:
+                ai = app_info(item); exe = os.path.basename(ai.get_executable() or '') if ai else None
+            if exe:
+                for w in reopen.clients():
+                    argv = reopen.command_of(w)
+                    if argv and os.path.basename(argv[0]) == exe: wids.append(w)
+        except Exception: wids = []
+        def quit_app():
+            for w in wids: subprocess.Popen(['bash', '-c', 'xdotool windowclose %d 2>/dev/null || xkill -id %d' % (w, w)])
         entries = [('Open', do_open, True)]
         entries += [('Move left', lambda: move(-1), i > 0), ('Move right', lambda: move(1), 0 <= i < len(its) - 1), ('Remove from dock', remove, len(its) > 1)]
+        entries += [('Quit', quit_app, bool(wids))]
         for lab, fn, ok in entries:
             it = Gtk.MenuItem(label=T(lab)); it.set_sensitive(ok); it.connect('activate', lambda w, f=fn: f()); m.append(it)
             if lab == entries[0][0]: m.append(Gtk.SeparatorMenuItem())

@@ -243,7 +243,8 @@ class FilesWindow(OsbWindow):
             P.put(make_label(txt, 10.5, 'semibold' if last else 'normal', 'text' if last else 'muted', w=px(wlab), h=px(16)), px(x), px(22)); x += wlab - 2
             if not last: P.put(Icon('chev-r', px(12), 'muted', 1.6), px(x + 3), px(24)); x += 22
         act = {'search': bool(getattr(self, 'sentry', None) and self.sentry.get_visible()), 'grid': getattr(self, 'vmode', 'list') == 'grid', 'dots': False}
-        for ic, xx in (('search', self.PW - 121), ('grid', self.PW - 81), ('dots', self.PW - 41)):
+        # tools sit left of the window buttons (which take the top-right corner, about 70 px wide)
+        for ic, xx in (('search', self.PW - 205), ('grid', self.PW - 165), ('dots', self.PW - 125)):
             P.put(Icon(ic, px(18), 'primary' if act[ic] else 'muted', 1.6), px(xx), px(21))
             ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(34), px(34)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             ev.connect('button-press-event', lambda w, e, k=ic: (self.tool(k, e), True)[-1]); P.put(ev, px(xx - 8), px(13))
