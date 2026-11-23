@@ -16,7 +16,7 @@ def bg(cmd, cb=None, timeout=30):
 
 CATS = [('Profile', 'user', 'profile'), ('Wi-Fi', 'wifi', 'wifi'), ('Network & VPN', 'globe', 'network'), ('Bluetooth', 'bluetooth', 'bluetooth'), ('Sound', 'speaker', 'sound'), ('Display', 'monitor', 'display'),
         ('Appearance', 'palette', 'appearance'), ('Customize', 'grid', 'customize'), ('Keyboard', 'keyboard', 'keyboard'), ('Devices', 'gear', 'devices'), ('Power & Lock', 'battery', 'power'), ('Date & Time', 'clock', 'time'),
-        ('Storage', 'disk', 'storage'), ('System Info', 'info', 'about'), ('System Update', 'download', 'update'), ('About', 'star', 'creator')]
+        ('Storage', 'disk', 'storage'), ('System Info', 'info', 'about'), ('System Status', 'monitor', 'status'), ('System Update', 'download', 'update'), ('About', 'star', 'creator')]
 CONF = os.path.expanduser('~/.config/osborne')
 
 class SettingsWin(OsbWindow):
@@ -387,6 +387,40 @@ class SettingsWin(OsbWindow):
         cbp = Gtk.ComboBoxText(); poss = [('left', 'Left'), ('center', 'Centre'), ('right', 'Right')]; [cbp.append_text(t) for k, t in poss]
         cbp.set_active([k for k, t in poss].index(bar.get('clock_pos', 'right')) if bar.get('clock_pos', 'right') in [k for k, t in poss] else 2)
         cbp.connect('changed', lambda c: self.bar_set('clock_pos', poss[c.get_active()][0])); self.row('Clock position', 'Where the clock sits on the top bar', cbp, rw=130)
+        self.row('Tinted background', 'Gives the top bar a solid colour instead of showing the wallpaper through it', Switch(bar.get('tint', False), lambda on: self.bar_set('tint', on)), rw=42, h=52)
+        self.sect('Weather')
+        from . import weather as WX
+        self.row('Weather on the top bar', 'Shows the temperature. Click it to see the forecast.', Switch(bar.get('weather', True), lambda on: self.bar_set('weather', on)), rw=42, h=52)
+        wcfg = WX.load(); cur_loc = wcfg.get('name') if wcfg.get('mode') == 'manual' else ''
+        auto_btn = self.btn('Automatic', lambda: (WX.save(dict(wcfg, mode='auto')), self.show('customize', True)))
+        auto_btn.set_size_request(px(110), px(30))
+        if wcfg.get('mode') != 'manual': auto_btn.get_style_context().add_class('suggested-action')
+        self.row('Location', ('Set to: %s' % cur_loc) if cur_loc else 'Find your city automatically (default), or choose one yourself.', auto_btn, rw=120, h=58)
+        ent = Gtk.Entry(); ent.set_placeholder_text('Type a city name'); ent.set_size_request(px(240), px(30))
+        res_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        def do_search(*a):
+            q = ent.get_text().strip()
+            for c in res_box.get_children(): res_box.remove(c)
+            if not q: return
+            res_box.pack_start(make_label('Searching…', 11, 'normal', 'muted', w=px(300), h=px(18)), False, False, 0); res_box.show_all()
+            def work():
+                try: out = WX.search(q)
+                except Exception: out = None
+                GLib.idle_add(show_res, out)
+            threading.Thread(target=work, daemon=True).start()
+        def show_res(out):
+            for c in res_box.get_children(): res_box.remove(c)
+            if out is None: res_box.pack_start(make_label('Could not search. Check the internet connection.', 11, 'normal', 'muted', w=px(360), h=px(18)), False, False, 0)
+            elif not out: res_box.pack_start(make_label('No city found with that name.', 11, 'normal', 'muted', w=px(300), h=px(18)), False, False, 0)
+            for r in (out or []):
+                b = self.btn(r['label'], lambda r=r: (WX.save(dict(wcfg, mode='manual', lat=r['lat'], lon=r['lon'], name=r['name'])), self.show('customize', True)))
+                b.set_size_request(px(360), px(30)); res_box.pack_start(b, False, False, 0)
+            res_box.show_all(); return False
+        ent.connect('activate', do_search)
+        sbtn = self.btn('Search', do_search); sbtn.set_size_request(px(90), px(30))
+        srow = Gtk.Box(spacing=8); srow.pack_start(ent, False, False, 0); srow.pack_start(sbtn, False, False, 0)
+        self.row('Choose a city', 'Use this instead of automatic detection.', srow, rw=340, h=58)
+        self.page.put(res_box, px(4), px(self.y)); self.y += 10 + 36 * 6
         for key, title, sub in (('cpu', 'CPU usage', 'Show how busy the processor is'), ('ram', 'Memory usage', 'Show how much memory is used'), ('net', 'Network speed', 'Show download and upload speed')):
             self.row(title, sub, Switch(bool(bar.get(key)), lambda on, k=key: self.bar_set(k, on)), rw=42, h=52)
         self.note('Tip: right-click the top bar or a dock icon for quick options.')
@@ -494,10 +528,10 @@ class SettingsWin(OsbWindow):
             sysconf.set_lang(sysconf.LANGS[c.get_active()][0])
             GLib.timeout_add(700, lambda: os.execv(sys.executable, [sys.executable, sys.argv[0], 'keyboard']))   # reopen Settings in the new language; the top bar and dock reload themselves
         cbl.connect('changed', setl); self.row('Interface language', 'Language of menus, buttons and settings', cbl, rw=170)
-        self.sect('Layouts'); self.note('Press Alt + Shift to switch between the layouts you enable.')
+        self.sect('Layouts'); self.note('Press Super + Space or Alt + Shift to switch between the layouts you enable.')
         def apply():
             ls = [l for l in ('us', 'ara') if l in self.have] or ['us']; self.have = set(ls)
-            os.makedirs(CONF, exist_ok=True); cmd = 'setxkbmap -layout %s -option grp:alt_shift_toggle' % ','.join(ls); open(os.path.join(CONF, 'keyboard.sh'), 'w').write('#!/bin/sh\n' + cmd + '\n'); subprocess.Popen(cmd + '; sleep 2; ' + cmd, shell=True)
+            os.makedirs(CONF, exist_ok=True); cmd = 'setxkbmap -layout %s -option grp:alt_shift_toggle -option grp:win_space_toggle' % ','.join(ls); open(os.path.join(CONF, 'keyboard.sh'), 'w').write('#!/bin/sh\n' + cmd + '\n'); subprocess.Popen(cmd + '; sleep 2; ' + cmd, shell=True)
         self.have = have
         for code, name, sub in (('us', 'English (US)', 'QWERTY'), ('ara', 'Arabic', 'العربية')):
             def tog(on, c=code):
@@ -586,6 +620,21 @@ class SettingsWin(OsbWindow):
             bar = Gtk.DrawingArea(); bar.set_size_request(self.PWd - px(40), px(6)); bar.frac = pct / 100.0; W = self.PWd - px(40)
             bar.connect('draw', lambda w, cr, W=W: (rounded_rect(cr, 0, 0, W, px(5), px(2.5)), cr.set_source_rgba(*hex2rgb(pal('track'))), cr.fill(), rounded_rect(cr, 0, 0, W * w.frac, px(5), px(2.5)), cr.set_source_rgba(*hex2rgb(pal('primary'))), cr.fill(), False)[-1])
             self.y -= 18; self.page.put(bar, px(18), px(self.y)); self.y += 26
+    def p_status(self):
+        from . import upkeep
+        st = upkeep.load()
+        t = upkeep.cpu_temp(); free = upkeep.disk_free_gb()
+        self.row('CPU temperature', '%d °C' % round(t) if t is not None else 'Not available on this computer', None, h=52)
+        self.row('Free disk space', '%.1f GB free on the system drive' % free if free is not None else '—', None, h=52)
+        self.row('VPN', 'Connected' if upkeep.vpn_active() else 'Not connected', None, h=52)
+        when = time.strftime('%d %b %Y, %H:%M', time.localtime(st['checked'])) if st.get('checked') else 'Never'
+        self.sect('Updates')
+        tot, sec = st.get('total', 0), st.get('security', 0)
+        self.row('Pending updates', '%d in total, %d security' % (tot, sec) if st.get('checked') else 'Not checked yet', None, h=52)
+        self.row('Last checked', when, self.btn('Check now', lambda: (threading.Thread(target=upkeep.check_updates, args=(False,), daemon=True).start(), self.show('status', True))), rw=100)
+        self.sect('Apps')
+        self.row('Update apps automatically', 'Installed Flatpak apps are updated once a day', Switch(upkeep.autoupdate_on(), upkeep.set_autoupdate), rw=42)
+
     def p_about(self):
         mem = re.search(r'MemTotal:\s+(\d+)', open('/proc/meminfo').read()); cpu = (re.search(r'model name\s*:\s*(.+)', open('/proc/cpuinfo').read()) or [0, 'Unknown'])[1]
         os_name = (re.search(r'PRETTY_NAME="?([^"\n]+)', open('/etc/os-release').read()) or [0, 'Linux'])[1]

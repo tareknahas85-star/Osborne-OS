@@ -26,7 +26,7 @@ install -d /usr/local/lib/osborne
 rm -rf /usr/local/lib/osborne/osb; cp -r "$P/lib/osb" /usr/local/lib/osborne/osb
 install -d /usr/share/osborne && cp "$P/share/osborne/"* /usr/share/osborne/
 install -d /etc/lightdm && printf '[greeter]\nbackground=/usr/share/osborne/login.png\nuser-background=false\ntheme-name=Adwaita-dark\nfont-name=Inter 12\nclock-format=%%H:%%M  %%a %%d %%b\n' > /etc/lightdm/lightdm-gtk-greeter.conf
-for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store osb-setup osb-clip osb-capture osb-widgets; do
+for b in osb-shell osb-files osb-wifi osb-apps osb-power osb-settings osb-calc osb-apply-theme osb-notifs osb-lock osb-monitor osb-switcher osb-brightness osb-welcome osb-store osb-setup osb-clip osb-capture osb-widgets osb-reopen; do
   sed 's#^sys.path.insert.*#sys.path.insert(0, "/usr/local/lib/osborne")#' "$P/bin/$b" > /usr/local/bin/$b; chmod 755 /usr/local/bin/$b; done
 install -m 755 "$P/bin/osb-launcher" /usr/local/bin/
 install -m 755 "$P/bin/osb-setup-session" /usr/local/bin/
@@ -118,7 +118,8 @@ xss-lock -- osb-lock &
 (sleep 0.6; osb-shell) &
 (sleep 2.2; osb-files) &
 AS
-  [ -f "$H/.config/osborne/keyboard.sh" ] || { printf '#!/bin/sh\nsetxkbmap -layout us,ara -option grp:alt_shift_toggle\n' > "$H/.config/osborne/keyboard.sh"; chmod +x "$H/.config/osborne/keyboard.sh"; }
+  [ -f "$H/.config/osborne/keyboard.sh" ] || { printf '#!/bin/sh\nsetxkbmap -layout us,ara -option grp:alt_shift_toggle -option grp:win_space_toggle\n' > "$H/.config/osborne/keyboard.sh"; chmod +x "$H/.config/osborne/keyboard.sh"; }
+  grep -q 'win_space_toggle' "$H/.config/osborne/keyboard.sh" 2>/dev/null || sed -i 's/grp:alt_shift_toggle/grp:alt_shift_toggle -option grp:win_space_toggle/' "$H/.config/osborne/keyboard.sh" 2>/dev/null || true
   sed -i -E 's/(-layout [a-z,]*[,])ar( |$)/\1ara\2/; s/-layout ar /-layout ara /' "$H/.config/osborne/keyboard.sh" 2>/dev/null || true
   # shortcuts: Super+Space = apps, volume / brightness keys
   RC="$H/.config/openbox/rc.xml"
@@ -127,7 +128,8 @@ AS
 import sys,re
 p=sys.argv[1]; x=open(p).read()
 k='''
-    <keybind key="W-space"><action name="Execute"><command>osb-apps</command></action></keybind>
+    <keybind key="W-a"><action name="Execute"><command>osb-apps</command></action></keybind>
+    <keybind key="W-S-t"><action name="Execute"><command>osb-reopen</command></action></keybind>
     <keybind key="Print"><action name="Execute"><command>osb-shot</command></action></keybind>
     <keybind key="S-Print"><action name="Execute"><command>osb-shot area</command></action></keybind>
     <keybind key="A-Print"><action name="Execute"><command>osb-shot window</command></action></keybind>
@@ -152,7 +154,7 @@ k='''
     <keybind key="XF86MonBrightnessUp"><action name="Execute"><command>osb-brightness up</command></action></keybind>
     <keybind key="XF86MonBrightnessDown"><action name="Execute"><command>osb-brightness down</command></action></keybind>
 '''
-x=re.sub(r'\s*<keybind key="(A-Tab|A-S-Tab|W-Tab|XF86MonBrightnessUp|XF86MonBrightnessDown)">.*?</keybind>','',x,flags=re.S)
+x=re.sub(r'\s*<keybind key="(A-Tab|A-S-Tab|W-Tab|W-space|XF86MonBrightnessUp|XF86MonBrightnessDown)">.*?</keybind>','',x,flags=re.S)
 k=''.join(l+'\n' for l in k.split('\n') if l.strip() and re.search(r'key="([^"]+)"',l) and 'key="%s"'%re.search(r'key="([^"]+)"',l).group(1) not in x)
 open(p,'w').write(x.replace('</keyboard>',k+'  </keyboard>',1) if (k and '</keyboard>' in x) else x)
 PY

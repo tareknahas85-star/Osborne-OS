@@ -1,2 +1,2 @@
 """Osborne OS UI version. Bump on every update pushed to GitHub."""
-VERSION = "2.5.5"
+VERSION = "2.6.0"

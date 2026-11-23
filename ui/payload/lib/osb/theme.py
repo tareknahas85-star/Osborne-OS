@@ -45,6 +45,7 @@ entry, spinbutton, textview, .view text, combobox button {{ background-color: {p
 entry:focus, spinbutton:focus {{ border-color: {p['primary']}; box-shadow: 0 0 0 2px alpha({p['primary']}, 0.25); }}
 textview, textview text, .view {{ background-color: {p['base']}; color: {p['text']}; }}
 selection, *:selected, .view:selected, textview text selection {{ background-color: {p['primary']}; color: #ffffff; }}
+window.popup, window.popup.menu {{ background-color: transparent; }}
 menu, .menu, .popup, popover, popover.background {{ background-color: {p['menu']}; color: {p['text']}; border: 1px solid {p['border']}; border-radius: 14px; padding: 6px; box-shadow: 0 10px 30px {p['shadow']}; }}
 menuitem, modelbutton {{ border-radius: 9px; padding: 7px 12px; color: {p['text']}; }}
 menuitem:hover, modelbutton:hover {{ background-color: {p['pill']}; color: {p['primary']}; }}

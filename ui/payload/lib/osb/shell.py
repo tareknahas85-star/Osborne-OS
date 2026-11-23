@@ -90,6 +90,11 @@ class TopBar(OsbWindow):
         super().__init__(sw, px(40), 0, Gdk.WindowTypeHint.DOCK, 'osb-topbar'); self.app = app; self.sw = sw
         self.move(0, 0)
         cfg = self.cfg = load_bar()
+        if cfg.get('tint'):
+            tb = Gtk.DrawingArea(); tb.set_size_request(sw, px(40))
+            def _tint(w, cr):
+                c = hex2rgb(pal('win')); cr.set_source_rgba(c[0], c[1], c[2], 0.82); cr.paint(); return False
+            tb.connect('draw', _tint); self.put(tb, 0, 0)
         self.put(Emblem(px(26), 'bar'), px(16), px(7)); lx = 54
         if cfg['activities']:
             act = make_label('Activities', 13, 'semibold', 'text', w=px(80), h=px(20)); self.put(act, px(lx), px(10)); lx = 127
@@ -112,6 +117,15 @@ class TopBar(OsbWindow):
         if cfg['clock'] and cpos == 'right': cur -= px(70); self.put(self.clock, cur, px(10)); tray.append(cur)
         for key, w_, off in (('bat', 17, 9), ('vol', 17, 9), ('wifi', 17, 9)):
             if cfg[key]: cur -= px(w_ + off); self.put(getattr(self, key), cur, px(11)); tray.append(cur)
+        self.wx_on = cfg.get('weather', True); self.wx_data = None
+        if self.wx_on:
+            cur -= px(84); self.wxi = Icon('wx-cloud', px(16), 'text', 1.6); self.put(self.wxi, cur + px(2), px(12))
+            self.wxl = make_label('…', 12, 'medium', 'text', xalign=0.0, w=px(58), h=px(20)); self.put(self.wxl, cur + px(22), px(10))
+            wev = Gtk.EventBox(); wev.set_visible_window(False); wev.set_size_request(px(84), px(40)); wev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            wev.connect('button-press-event', lclick(self.wx_popup)); self.put(wev, cur, 0)
+            self.wx_pop = Gtk.Popover(); self.wx_pop.set_relative_to(self.wxl); self.wx_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            self.wx_box.set_margin_start(14); self.wx_box.set_margin_end(14); self.wx_box.set_margin_top(12); self.wx_box.set_margin_bottom(12); self.wx_pop.add(self.wx_box)
+            GLib.timeout_add_seconds(4, self.wx_tick); GLib.timeout_add_seconds(900, self.wx_tick)
         tray_left = cur
         ev = Gtk.EventBox(); ev.set_visible_window(False); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         ev.set_size_request(max(px(40), right_edge - tray_left + px(20)), px(40)); ev.connect('button-press-event', lclick(app.toggle_qs)); self.put(ev, tray_left - px(10), 0)
@@ -137,6 +151,42 @@ class TopBar(OsbWindow):
             self.put(self.statl, lx2 + px(6), px(10)); self.stats.read(); GLib.timeout_add_seconds(2, self.stat_tick)
         self.connect('button-press-event', self._rclick)
         self.connect('realize', self._strut); self.poll_layout(); GLib.timeout_add(800, self.poll_layout); self.tick(); GLib.timeout_add_seconds(15, self.tick); GLib.timeout_add(2500, self.poll_active)
+    def wx_tick(self):
+        if not self.wx_on: return False
+        import threading
+        def work():
+            from . import weather as W
+            try:
+                lat, lon, name = W.place(); d = W.forecast(lat, lon); GLib.idle_add(self.wx_show, d, name)
+            except Exception: GLib.idle_add(self.wx_show, None, '')
+        threading.Thread(target=work, daemon=True).start(); return True
+    def wx_show(self, d, name):
+        if d is None: self.wxl.set_text('—'); self.wx_data = None; return False
+        from . import weather as W
+        self.wx_data = (d, name); self.wxl.set_text('%d°' % d['temp']); self.wxi.set_name_(W.icon_for(d.get('code')))
+        self.wx_morning(d, name); return False
+    def wx_morning(self, d, name):
+        """Once a day between 07:00 and 09:00, send a short weather notification."""
+        stamp = os.path.join(CONF, 'wx_morning'); today = time.strftime('%Y-%m-%d')
+        if not (7 <= time.localtime().tm_hour < 9): return
+        try:
+            if open(stamp).read().strip() == today: return
+        except Exception: pass
+        os.makedirs(CONF, exist_ok=True); open(stamp, 'w').write(today)
+        body = '%s  ·  %d°C  ·  %s' % (name or '', d['temp'], d['text'])
+        run_bg(['notify-send', '-a', 'Weather', 'Good morning', body], None, 5)
+    def wx_popup(self):
+        for c in self.wx_box.get_children(): self.wx_box.remove(c)
+        if not self.wx_data:
+            lines = [('Weather', 'bold'), ('Could not get the weather. Check the internet connection.', 'normal')]
+        else:
+            d, name = self.wx_data
+            lines = [(name or 'Weather', 'bold'), ('%d°C  ·  %s' % (d['temp'], d['text']), 'semibold'),
+                     ('Humidity %s%%  ·  Wind %d km/h' % (d['humidity'], d['wind']), 'normal')]
+            lines += [('%s   %d° / %d°   %s' % (x['day'], x['hi'], x['lo'], x['text']), 'normal') for x in d['days']]
+        for t, w in lines:
+            lb = make_label(t, 12 if w != 'bold' else 13, w, 'text', w=px(260), h=px(20)); lb.set_xalign(0.0); self.wx_box.pack_start(lb, False, False, 0)
+        self.wx_box.show_all(); self.wx_pop.popup(); return False
     def stat_tick(self):
         if not self.stat_on: return False
         d = self.stats.read(); parts = []
@@ -188,7 +238,7 @@ class TopBar(OsbWindow):
             if not hasattr(self, '_x11'): self.poll_layout()
             layouts = self._query_layouts()
             if len(layouts) < 2:
-                subprocess.run(['setxkbmap', '-layout', 'us,ara', '-option', 'grp:alt_shift_toggle'], timeout=5)
+                subprocess.run(['setxkbmap', '-layout', 'us,ara', '-option', 'grp:alt_shift_toggle', '-option', 'grp:win_space_toggle'], timeout=5)
                 layouts = self._query_layouts()
             self._layouts = layouts; n = max(1, len(layouts))
             st = self._XkbState(); self._x11.XkbGetState(ctypes.c_void_p(self._dpy), 0x0100, ctypes.byref(st))
@@ -584,6 +634,11 @@ class ShellApp:
         watch_conf('dock.json', self.rebuild_dock); watch_conf('topbar.json', self.rebuild_bar); watch_conf('accent', self.accent_changed)
         GLib.timeout_add(2500, lambda: ([launch(['osb-clip']), launch(['osb-widgets'])], False)[-1])
         self._fs_paused = False; GLib.timeout_add_seconds(3, self.fullscreen_check)
+        from . import upkeep, reopen
+        self.reopen = reopen.Tracker(); GLib.timeout_add_seconds(2, lambda: (self.reopen.run_async(), True)[-1])
+        GLib.timeout_add_seconds(120, lambda: (threading.Thread(target=upkeep.check_updates, daemon=True).start(), True)[-1])
+        GLib.timeout_add_seconds(6 * 3600, lambda: (threading.Thread(target=upkeep.check_updates, daemon=True).start(), True)[-1])
+        GLib.timeout_add_seconds(600, lambda: (threading.Thread(target=upkeep.flatpak_update_daily, daemon=True).start(), True)[-1])
         self.net_last = None; GLib.timeout_add_seconds(30, self.net_usage); GLib.timeout_add_seconds(75, lambda: (self.update_check(), False)[-1]); GLib.timeout_add_seconds(6 * 3600, lambda: (self.update_check(), True)[-1])
     def fullscreen_check(self):
         """Pause notifications while a window is full screen; resume when it leaves full screen."""

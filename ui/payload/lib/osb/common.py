@@ -80,7 +80,7 @@ def set_accent(hexc):
 import json
 DOCKFILE = os.path.join(CONF, 'dock.json'); BARFILE = os.path.join(CONF, 'topbar.json')
 DOCK_DEFAULT = dict(items=['apps', 'files', 'browser', 'terminal', 'calculator', 'settings'], size='medium', trash=True)
-BAR_DEFAULT = dict(activities=True, appname=True, lang=True, bell=True, wifi=True, vol=True, bat=True, clock=True, clock_pos='right', cpu=False, ram=False, net=False)
+BAR_DEFAULT = dict(activities=True, appname=True, lang=True, bell=True, wifi=True, vol=True, bat=True, clock=True, clock_pos='right', cpu=False, ram=False, net=False, weather=True, tint=False)
 def load_json(path, default):
     d = dict(default)
     try:
@@ -211,6 +211,12 @@ ICONS = {
  'backspace': '<path d="M9 5.5h9.5a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9L3.5 12z"/><path d="M12.5 9.5l4 4M16.5 9.5l-4 4"/>',
  'check': '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
  'x': '<path d="M6 6l12 12M18 6L6 18"/>',
+ 'wx-sun': _sun(),
+ 'wx-cloud': '<path d="M7.5 18.5h9.8a3.7 3.7 0 0 0 .4-7.4 5.4 5.4 0 0 0-10.3-1.2A4.4 4.4 0 0 0 7.5 18.5z"/>',
+ 'wx-rain': '<path d="M7.5 14.5h9.3a3.3 3.3 0 0 0 .3-6.6 5 5 0 0 0-9.5-1.1 4 4 0 0 0-.1 7.7z"/><path d="M8.5 17.5l-1 2.5M12.5 17.5l-1 2.5M16.5 17.5l-1 2.5"/>',
+ 'wx-snow': '<path d="M7.5 14.5h9.3a3.3 3.3 0 0 0 .3-6.6 5 5 0 0 0-9.5-1.1 4 4 0 0 0-.1 7.7z"/><path d="M8.5 17.5h.01M12.5 19h.01M16.5 17.5h.01"/>',
+ 'wx-storm': '<path d="M7.5 14.5h9.3a3.3 3.3 0 0 0 .3-6.6 5 5 0 0 0-9.5-1.1 4 4 0 0 0-.1 7.7z"/><path d="M12.5 15.5l-2 3.5h2.5l-1.5 2.5"/>',
+ 'wx-fog': '<path d="M4 9.5h16M6 13h12M4 16.5h16"/>',
  'file': '<path d="M7 3.5h6.5L18.5 8.5V19a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M13.5 3.5v5h5"/>',
 }
 _pbcache = {}
@@ -280,10 +286,13 @@ class Icon(Gtk.DrawingArea):
     def set_name_(self, name): self.name = name; self.queue_draw()
 
 def draw_emblem(cr, x, y, size, col):
-    """Osborne emblem: a bold ring with a small orbiting dot."""
-    cr.save(); cr.translate(x, y); u = size / 24.0; cr.set_source_rgba(*(hex2rgb(col) if isinstance(col, str) else col))
-    cr.set_line_width(3.3 * u); cr.arc(11.2 * u, 12.8 * u, 7.3 * u, 0, 6.2832); cr.stroke()
-    cr.arc(19.2 * u, 4.8 * u, 2.7 * u, 0, 6.2832); cr.fill(); cr.restore()
+    """Osborne emblem: two overlapping rounded panels (the chosen logo mark)."""
+    cr.save(); cr.translate(x, y); rgb = hex2rgb(col) if isinstance(col, str) else col
+    k = size * 0.9 / 440.0; ox = size * 0.05; oy = (size - 340 * k) / 2.0
+    cr.set_source_rgba(rgb[0], rgb[1], rgb[2], rgb[3] * 0.5 if len(rgb) > 3 else 0.5)
+    rounded_rect(cr, ox, oy, 300 * k, 220 * k, 46 * k); cr.fill()
+    cr.set_source_rgba(rgb[0], rgb[1], rgb[2], rgb[3] if len(rgb) > 3 else 1.0)
+    rounded_rect(cr, ox + 140 * k, oy + 120 * k, 300 * k, 220 * k, 46 * k); cr.fill(); cr.restore()
 
 class Emblem(Gtk.DrawingArea):
     def __init__(self, size, color='bar'):
@@ -577,8 +586,9 @@ class OsbWindow(Gtk.Window):
         self.connect('key-press-event', lambda w, e: (self.close(), True)[-1] if e.keyval == Gdk.KEY_Escape else False)
 
 def traffic_lights(win, x=16, y=25, on_max=None, parent=None):
-    """macOS-style close / minimise / maximise dots that actually work."""
+    """macOS-style close / minimise / maximise dots that actually work. They sit on the right edge of the window."""
     parent = parent or win
+    x0 = win.cw - px(x) - px(54)
     specs = (('#ff5f57', lambda: win.close()), ('#febc2e', lambda: win.iconify()), ('#28c840', on_max))
     for i, (col, fn) in enumerate(specs):
         d = Gtk.DrawingArea(); d.set_size_request(px(14), px(14)); d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
@@ -596,7 +606,7 @@ def traffic_lights(win, x=16, y=25, on_max=None, parent=None):
         d.connect('enter-notify-event', lambda w, e: (setattr(w, 'hover', True), w.queue_draw(), False)[-1])
         d.connect('leave-notify-event', lambda w, e: (setattr(w, 'hover', False), w.queue_draw(), False)[-1])
         d.connect('button-press-event', lambda w, e: ((w.fn() if w.fn else None), True)[-1])
-        parent.put(d, px(x + i * 20), px(y))
+        parent.put(d, x0 + px(i * 20), px(y))
 
 
 _mon = []

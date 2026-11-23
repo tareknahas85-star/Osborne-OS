@@ -80,14 +80,15 @@ class Widget(OsbWindow):
     def fetch_weather(self):
         def work():
             try:
-                o = subprocess.run(['curl', '-fsS', '-m', '10', 'https://wttr.in/?format=%l|%t|%C|%h|%w'], capture_output=True, text=True).stdout.strip().split('|')
-                if len(o) < 5: raise ValueError
-                GLib.idle_add(self.show_weather, o)
+                from . import weather as W
+                lat, lon, name = W.place(); d = W.forecast(lat, lon)
+                GLib.idle_add(self.show_weather, (d, name))
             except Exception: GLib.idle_add(self.show_weather, None)
         threading.Thread(target=work, daemon=True).start()
     def show_weather(self, o):
         if not o: self.w1.set_text('—'); self.w2.set_text(tr('No internet connection')); self.w3.set_text(''); return
-        self.w1.set_text(o[1].strip()); self.w2.set_text('%s  ·  %s' % (o[0].strip(), o[2].strip())); self.w3.set_text('%s  %s' % (o[3].strip(), o[4].strip()))
+        d, name = o
+        self.w1.set_text('%d°C' % d['temp']); self.w2.set_text('%s  ·  %s' % (name or '', d['text'])); self.w3.set_text('Humidity %s%%  ·  Wind %d km/h' % (d['humidity'], d['wind']))
 
 class App:
     def __init__(self):

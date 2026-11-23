@@ -22,6 +22,23 @@ FEATURED = [
     ('Audacity', 'Audio recorder and editor', 'org.audacityteam.Audacity', 'audacity', False),
     ('Postman', 'API testing tool', 'com.getpostman.Postman', 'postman', False),
 ]
+COLLECTIONS = {'popular': ('Most downloaded', 'https://flathub.org/api/v2/collection/popular'),
+               'updated': ('Recently updated', 'https://flathub.org/api/v2/collection/recently-updated')}
+def flathub_collection(key):
+    """Apps from a Flathub list (free public API). Returns [] when Flathub cannot be reached."""
+    import urllib.request, json as _json
+    try:
+        with urllib.request.urlopen(urllib.request.Request(COLLECTIONS[key][1], headers={'User-Agent': 'Osborne-OS'}), timeout=15) as r:
+            d = _json.loads(r.read(3_000_000).decode('utf-8', 'replace'))
+    except Exception: return []
+    hits = d.get('hits', d) if isinstance(d, dict) else d
+    out = []
+    for h in hits if isinstance(hits, list) else []:
+        aid = h.get('app_id') or h.get('id')
+        if not aid: continue
+        out.append(dict(src='flathub', id=aid, name=h.get('name') or aid, summary=h.get('summary') or '', classic=False))
+        if len(out) >= 24: break
+    return out
 SKIP_SNAPS = {'core', 'core18', 'core20', 'core22', 'core24', 'bare', 'snapd', 'snap-store', 'gtk-common-themes'}
 TILE_COLORS = ['#0a7cff', '#7a5af8', '#f2616c', '#1ea672', '#ff9d12', '#d46fb5', '#2aa5c9']
 
@@ -150,7 +167,14 @@ class Store(OsbWindow):
             self.put(pill, px(x), px(82)); self.put(lb, px(x), px(82))
             ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(wd), px(30)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             ev.connect('button-press-event', lambda w, e, k=key: (self.set_mode_(k), True)[-1]); self.put(ev, px(x), px(82)); self.pills[key] = (pill, lb)
-        self.status = make_label('Popular apps', 10, 'semibold', 'muted', w=px(500), h=px(16)); self.put(self.status, px(32), px(130))
+        self.status = make_label('Popular apps', 10, 'semibold', 'muted', w=px(410), h=px(16)); self.put(self.status, px(32), px(130))
+        self.coll_pills = {}
+        for key, x in (('popular', 452), ('updated', 580)):
+            lab = COLLECTIONS[key][0]; wd = 124 if key == 'popular' else 128
+            pill = Box('seg', px(wd), px(24)); lb = make_label(lab, 9, 'semibold', 'text', xalign=0.5, w=px(wd), h=px(24))
+            self.put(pill, px(x), px(128)); self.put(lb, px(x), px(128))
+            ev = Gtk.EventBox(); ev.set_visible_window(False); ev.set_size_request(px(wd), px(24)); ev.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            ev.connect('button-press-event', lambda w, e, k=key: (self.show_collection(k), True)[-1]); self.put(ev, px(x), px(128))
         self.sc = Gtk.ScrolledWindow(); self.sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC); self.sc.set_size_request(px(750), px(368))
         self.sc.get_style_context().add_class('osbscroll'); self.lst = Gtk.Fixed(); self.sc.add(self.lst); self.put(self.sc, px(20), px(154))
         self.bar = PulseBar(px(740), 6); self.put(self.bar, px(30), px(536)); self.bar.hide()
@@ -187,6 +211,19 @@ class Store(OsbWindow):
             if self.mode in ('all', 'flathub'): res.append(dict(src='flathub', id=fid, name=name, summary=summ, classic=False))
             if self.mode == 'snap' or (self.mode == 'all' and False): res.append(dict(src='snap', id=snap, name=name, summary=summ, classic=classic))
         self.results = res; self.fill(res)
+    def show_collection(self, key):
+        """Show a Flathub list (Most downloaded / Recently updated) in the results area."""
+        if self.mode not in ('all', 'flathub'): self.set_mode_('all')
+        self.status.set_text('Loading %s…' % COLLECTIONS[key][0].lower()); self.token += 1; tok = self.token
+        def w():
+            res = flathub_collection(key)
+            GLib.idle_add(self._collection_done, tok, key, res)
+        threading.Thread(target=w, daemon=True).start()
+    def _collection_done(self, tok, key, res):
+        if tok != self.token: return False
+        if not res:
+            self.status.set_text('Could not load this list. Check the internet connection (VPN) and try again.'); self.results = []; self.fill([]); return False
+        self.status.set_text(COLLECTIONS[key][0]); self.results = res; self.fill(res); return False
     def show_installed(self):
         self.status.set_text('Loading installed apps…')
         def w():
